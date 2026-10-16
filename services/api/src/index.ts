@@ -6,6 +6,8 @@ import path from "node:path";
 import { realpath, stat } from "node:fs/promises";
 
 import { scanRepository } from "./services/repositoryScanner.js";
+import { analyzeRepository } from "./services/repositoryAnalyzer.js";
+import { buildDependencyGraph } from "./services/dependencyGraph.js";
 
 dotenv.config();
 
@@ -47,7 +49,6 @@ app.post("/api/repositories/scan", async (req, res) => {
       return;
     }
 
-    // Resolve symlinks before checking the workspace boundary.
     const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
     const resolvedRepository = await realpath(
       path.resolve(resolvedWorkspace, repositoryPath)
@@ -103,6 +104,83 @@ app.post("/api/repositories/scan", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to scan repository.",
+    });
+  }
+});
+
+app.post("/api/repositories/analyze", async (req, res) => {
+  try {
+    const repositoryPath = req.body?.path;
+
+    if (
+      typeof repositoryPath !== "string" ||
+      repositoryPath.trim().length === 0
+    ) {
+      res.status(400).json({
+        error: 'A repository path is required in the "path" field.',
+      });
+      return;
+    }
+
+    const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
+    const resolvedRepository = await realpath(
+      path.resolve(resolvedWorkspace, repositoryPath)
+    );
+
+    const relativePath = path.relative(
+      resolvedWorkspace,
+      resolvedRepository
+    );
+
+    if (
+      relativePath === "" ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      res.status(403).json({
+        error: "The repository must be inside the configured workspace.",
+      });
+      return;
+    }
+
+    const repositoryStats = await stat(resolvedRepository);
+
+    if (!repositoryStats.isDirectory()) {
+      res.status(400).json({
+        error: "The specified repository path must be a directory.",
+      });
+      return;
+    }
+
+    const analysis = await analyzeRepository(
+      resolvedRepository,
+      relativePath.split(path.sep).join("/")
+    );
+
+    const graph = buildDependencyGraph(analysis.files);
+
+    res.status(200).json({
+      ...analysis,
+      graph,
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      res.status(404).json({
+        error: "Repository path not found.",
+      });
+      return;
+    }
+
+    console.error("Repository analysis failed:", error);
+
+    res.status(500).json({
+      error: "Failed to analyze repository.",
     });
   }
 });
