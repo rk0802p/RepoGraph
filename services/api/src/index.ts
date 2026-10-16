@@ -8,6 +8,7 @@ import { realpath, stat } from "node:fs/promises";
 import { scanRepository } from "./services/repositoryScanner.js";
 import { analyzeRepository } from "./services/repositoryAnalyzer.js";
 import { buildDependencyGraph } from "./services/dependencyGraph.js";
+import { analyzeChangeImpact } from "./services/impactAnalyzer.js";
 
 dotenv.config();
 
@@ -27,6 +28,90 @@ const WORKSPACE_ROOT = path.resolve(configuredWorkspace);
 app.use(cors());
 app.use(express.json());
 
+type RepositoryResolution =
+  | {
+      error: string;
+      status: number;
+    }
+  | {
+      rootDirectory: string;
+      repository: string;
+    };
+
+async function resolveRepository(
+  repositoryPath: unknown
+): Promise<RepositoryResolution> {
+  if (
+    typeof repositoryPath !== "string" ||
+    repositoryPath.trim().length === 0
+  ) {
+    return {
+      error: 'A repository path is required in the "path" field.',
+      status: 400,
+    };
+  }
+
+  const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
+  const resolvedRepository = await realpath(
+    path.resolve(resolvedWorkspace, repositoryPath)
+  );
+
+  const relativePath = path.relative(
+    resolvedWorkspace,
+    resolvedRepository
+  );
+
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    return {
+      error: "The repository must be inside the configured workspace.",
+      status: 403,
+    };
+  }
+
+  const repositoryStats = await stat(resolvedRepository);
+
+  if (!repositoryStats.isDirectory()) {
+    return {
+      error: "The specified repository path must be a directory.",
+      status: 400,
+    };
+  }
+
+  return {
+    rootDirectory: resolvedRepository,
+    repository: relativePath.split(path.sep).join("/"),
+  };
+}
+
+function handleRepositoryError(
+  error: unknown,
+  res: express.Response,
+  operation: string
+): void {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  ) {
+    res.status(404).json({
+      error: "Repository path not found.",
+    });
+    return;
+  }
+
+  console.error(`${operation} failed:`, error);
+
+  res.status(500).json({
+    error: `${operation} failed.`,
+  });
+}
+
 app.get("/api/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
@@ -37,125 +122,41 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/repositories/scan", async (req, res) => {
   try {
-    const repositoryPath = req.body?.path;
+    const resolved = await resolveRepository(req.body?.path);
 
-    if (
-      typeof repositoryPath !== "string" ||
-      repositoryPath.trim().length === 0
-    ) {
-      res.status(400).json({
-        error: 'A repository path is required in the "path" field.',
+    if ("error" in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
       });
       return;
     }
 
-    const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
-    const resolvedRepository = await realpath(
-      path.resolve(resolvedWorkspace, repositoryPath)
-    );
-
-    const relativePath = path.relative(
-      resolvedWorkspace,
-      resolvedRepository
-    );
-
-    if (
-      relativePath === "" ||
-      relativePath === ".." ||
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
-      res.status(403).json({
-        error: "The repository must be inside the configured workspace.",
-      });
-      return;
-    }
-
-    const repositoryStats = await stat(resolvedRepository);
-
-    if (!repositoryStats.isDirectory()) {
-      res.status(400).json({
-        error: "The specified repository path must be a directory.",
-      });
-      return;
-    }
-
-    const files = await scanRepository(resolvedRepository);
+    const files = await scanRepository(resolved.rootDirectory);
 
     res.status(200).json({
-      repository: relativePath.split(path.sep).join("/"),
+      repository: resolved.repository,
       totalFiles: files.length,
       files,
     });
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      res.status(404).json({
-        error: "Repository path not found.",
-      });
-      return;
-    }
-
-    console.error("Repository scan failed:", error);
-
-    res.status(500).json({
-      error: "Failed to scan repository.",
-    });
+    handleRepositoryError(error, res, "Repository scan");
   }
 });
 
 app.post("/api/repositories/analyze", async (req, res) => {
   try {
-    const repositoryPath = req.body?.path;
+    const resolved = await resolveRepository(req.body?.path);
 
-    if (
-      typeof repositoryPath !== "string" ||
-      repositoryPath.trim().length === 0
-    ) {
-      res.status(400).json({
-        error: 'A repository path is required in the "path" field.',
-      });
-      return;
-    }
-
-    const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
-    const resolvedRepository = await realpath(
-      path.resolve(resolvedWorkspace, repositoryPath)
-    );
-
-    const relativePath = path.relative(
-      resolvedWorkspace,
-      resolvedRepository
-    );
-
-    if (
-      relativePath === "" ||
-      relativePath === ".." ||
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
-      res.status(403).json({
-        error: "The repository must be inside the configured workspace.",
-      });
-      return;
-    }
-
-    const repositoryStats = await stat(resolvedRepository);
-
-    if (!repositoryStats.isDirectory()) {
-      res.status(400).json({
-        error: "The specified repository path must be a directory.",
+    if ("error" in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
       });
       return;
     }
 
     const analysis = await analyzeRepository(
-      resolvedRepository,
-      relativePath.split(path.sep).join("/")
+      resolved.rootDirectory,
+      resolved.repository
     );
 
     const graph = buildDependencyGraph(analysis.files);
@@ -165,23 +166,55 @@ app.post("/api/repositories/analyze", async (req, res) => {
       graph,
     });
   } catch (error) {
+    handleRepositoryError(error, res, "Repository analysis");
+  }
+});
+
+app.post("/api/repositories/impact", async (req, res) => {
+  try {
+    const { path: repositoryPath, file: changedFile } = req.body ?? {};
+
     if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
+      typeof changedFile !== "string" ||
+      changedFile.trim().length === 0
     ) {
-      res.status(404).json({
-        error: "Repository path not found.",
+      res.status(400).json({
+        error: 'A file path is required in the "file" field.',
       });
       return;
     }
 
-    console.error("Repository analysis failed:", error);
+    const resolved = await resolveRepository(repositoryPath);
 
-    res.status(500).json({
-      error: "Failed to analyze repository.",
+    if ("error" in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
+      });
+      return;
+    }
+
+    const analysis = await analyzeRepository(
+      resolved.rootDirectory,
+      resolved.repository
+    );
+
+    const graph = buildDependencyGraph(analysis.files);
+
+    const result = analyzeChangeImpact(graph, changedFile);
+
+    if (!result.success) {
+      res.status(404).json({
+        error: result.error,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      repository: analysis.repository,
+      ...result.report,
     });
+  } catch (error) {
+    handleRepositoryError(error, res, "Change-impact analysis");
   }
 });
 

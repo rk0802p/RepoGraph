@@ -1,11 +1,14 @@
+
 import { useEffect, useRef, useState } from "react";
 import cytoscape, { type Core } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import {
+  analyzeChangeImpact,
   analyzeRepository,
   checkApiHealth,
   type AnalyzedFile,
   type ApiHealth,
+  type ChangeImpactReport,
   type RepositoryAnalysis,
 } from "./api";
 import "./App.css";
@@ -35,8 +38,23 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [impactReport, setImpactReport] =
+    useState<ChangeImpactReport | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+
   const graphContainer = useRef<HTMLDivElement>(null);
   const graphInstance = useRef<Core | null>(null);
+
+  // Invalidates requests belonging to an older file selection.
+  const impactRequestId = useRef(0);
+
+  function clearImpactState() {
+    impactRequestId.current += 1;
+    setImpactReport(null);
+    setImpactLoading(false);
+    setImpactError(null);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -179,18 +197,20 @@ function App() {
     graph.on("tap", "node", (event) => {
       const path = event.target.data("path") as string;
       const file = analysis.files.find((item) => item.path === path);
+
+      clearImpactState();
       setSelectedFile(file ?? null);
     });
 
     graph.on("tap", (event) => {
       if (event.target === graph) {
+        clearImpactState();
         setSelectedFile(null);
       }
     });
 
     const layout = graph.layout({
       ...graphLayout,
-      fit: false,
     });
 
     layout.one("layoutstop", () => {
@@ -219,6 +239,7 @@ function App() {
       return;
     }
 
+    clearImpactState();
     setLoading(true);
     setError(null);
     setSelectedFile(null);
@@ -236,10 +257,50 @@ function App() {
     }
   }
 
+  async function handleAnalyzeImpact() {
+    if (!analysis || !selectedFile) {
+      setImpactError("Select a file before analyzing its impact.");
+      return;
+    }
+
+    // Capture both the request ID and selected path for this analysis.
+    const requestId = ++impactRequestId.current;
+    const requestedFilePath = selectedFile.path;
+    const requestedRepository = analysis.repository;
+
+    setImpactLoading(true);
+    setImpactError(null);
+    setImpactReport(null);
+
+    try {
+      const report = await analyzeChangeImpact(
+        requestedRepository,
+        requestedFilePath
+      );
+
+      // Ignore results if the user selected another file or started
+      // a newer impact request while this request was running.
+      if (impactRequestId.current !== requestId) return;
+
+      setImpactReport(report);
+    } catch (err) {
+      if (impactRequestId.current !== requestId) return;
+
+      setImpactError(
+        err instanceof Error ? err.message : "Change-impact analysis failed."
+      );
+    } finally {
+      if (impactRequestId.current === requestId) {
+        setImpactLoading(false);
+      }
+    }
+  }
+
   const fileName = (filePath: string) =>
     filePath.split("/").pop() ?? filePath;
 
   function selectFile(file: AnalyzedFile) {
+    clearImpactState();
     setSelectedFile(file);
 
     const graph = graphInstance.current;
@@ -267,7 +328,6 @@ function App() {
 
     const layout = graph.layout({
       ...graphLayout,
-      fit: false,
     });
 
     layout.one("layoutstop", () => {
@@ -477,6 +537,104 @@ function App() {
                   </ul>
                 )}
               </div>
+
+              <div className="detail-section impact-action-section">
+                <span className="detail-label">Change impact</span>
+                <p className="muted">
+                  Find files that may be affected if this file changes.
+                </p>
+                <button
+                  type="button"
+                  className="impact-button"
+                  onClick={handleAnalyzeImpact}
+                  disabled={impactLoading || loading}
+                >
+                  {impactLoading ? "Analyzing impact…" : "Analyze Impact"}
+                </button>
+
+                {impactError && (
+                  <p className="error-message">{impactError}</p>
+                )}
+              </div>
+
+              {impactReport &&
+                impactReport.changedFile === selectedFile.path && (
+                  <div className="detail-section impact-report">
+                    <span className="detail-label">Impact report</span>
+                    <p className="file-path">
+                      Changed: {impactReport.changedFile}
+                    </p>
+
+                    <div className="stat-row">
+                      <span>Total affected</span>
+                      <strong>{impactReport.totalImpactedFiles}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Direct</span>
+                      <strong>{impactReport.directDependents}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Transitive</span>
+                      <strong>{impactReport.transitiveDependents}</strong>
+                    </div>
+
+                    {impactReport.impactedFiles.length === 0 ? (
+                      <p className="muted">
+                        No dependent files were found in the current graph.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="detail-label">
+                          Potentially affected files
+                        </p>
+                        <ul className="detail-list impact-file-list">
+                          {impactReport.impactedFiles.map((item) => {
+                            const file = analysis?.files.find(
+                              (candidate) => candidate.path === item.path
+                            );
+
+                            return (
+                              <li
+                                key={item.path}
+                                className="impact-file-item"
+                              >
+                                <div className="impact-file-info">
+                                  <span title={item.path}>
+                                    {fileName(item.path)}
+                                  </span>
+                                  <small>
+                                    {item.relationship} · distance {item.distance}
+                                  </small>
+                                  <small
+                                    title={item.dependencyChain.join(" → ")}
+                                  >
+                                    {item.dependencyChain
+                                      .map(fileName)
+                                      .join(" → ")}
+                                  </small>
+                                </div>
+                                {file && (
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    onClick={() => selectFile(file)}
+                                  >
+                                    Open
+                                  </button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </>
+                    )}
+
+                    <p className="muted impact-disclaimer">
+                      These files are potential impacts based on detected
+                      imports, not proof that they will break.
+                    </p>
+                  </div>
+                )}
             </>
           ) : (
             <div className="inspector-empty">

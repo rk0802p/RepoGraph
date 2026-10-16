@@ -59,6 +59,23 @@ export type RepositoryAnalysis = {
   graph: DependencyGraph;
 };
 
+export type ImpactedFile = {
+  path: string;
+  distance: number;
+  relationship: "direct" | "transitive";
+  dependencyChain: string[];
+  importLine: number;
+};
+
+export type ChangeImpactReport = {
+  repository: string;
+  changedFile: string;
+  totalImpactedFiles: number;
+  directDependents: number;
+  transitiveDependents: number;
+  impactedFiles: ImpactedFile[];
+};
+
 async function request<T>(
   endpoint: string,
   options?: RequestInit
@@ -70,6 +87,7 @@ async function request<T>(
 
     try {
       const body = await response.json();
+
       if (typeof body.error === "string") {
         message = body.error;
       }
@@ -96,5 +114,21 @@ export function analyzeRepository(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ path: repositoryPath }),
+  });
+}
+
+export function analyzeChangeImpact(
+  repositoryPath: string,
+  filePath: string
+): Promise<ChangeImpactReport> {
+  return request<ChangeImpactReport>("/api/repositories/impact", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      path: repositoryPath,
+      file: filePath,
+    }),
   });
 }
