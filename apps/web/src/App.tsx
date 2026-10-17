@@ -45,8 +45,6 @@ function App() {
 
   const graphContainer = useRef<HTMLDivElement>(null);
   const graphInstance = useRef<Core | null>(null);
-
-  // Invalidates requests belonging to an older file selection.
   const impactRequestId = useRef(0);
 
   function clearImpactState() {
@@ -145,6 +143,43 @@ function App() {
           },
         },
         {
+          selector: "node.impact-unrelated",
+          style: {
+            "background-color": "#334155",
+            "border-color": "#475569",
+            color: "#64748b",
+            opacity: 0.3,
+            "text-opacity": 0.35,
+          },
+        },
+        {
+          selector: "node.impact-changed",
+          style: {
+            "background-color": "#6366f1",
+            "border-color": "#c4b5fd",
+            "border-width": 4,
+            width: 48,
+            height: 48,
+            color: "#ffffff",
+            "font-weight": 700,
+            opacity: 1,
+            "text-opacity": 1,
+            "z-index": 20,
+          },
+        },
+        {
+          selector: "node.impact-affected",
+          style: {
+            "background-color": "#f59e0b",
+            "border-color": "#fcd34d",
+            "border-width": 3,
+            color: "#ffffff",
+            opacity: 1,
+            "text-opacity": 1,
+            "z-index": 15,
+          },
+        },
+        {
           selector: "edge",
           style: {
             width: 1.5,
@@ -164,6 +199,25 @@ function App() {
             "target-arrow-color": "#a5b4fc",
             width: 2.5,
             opacity: 1,
+          },
+        },
+        {
+          selector: "edge.impact-unrelated",
+          style: {
+            "line-color": "#334155",
+            "target-arrow-color": "#334155",
+            opacity: 0.12,
+          },
+        },
+        {
+          selector: "edge.impact-path",
+          style: {
+            "line-color": "#fbbf24",
+            "target-arrow-color": "#fbbf24",
+            width: 3,
+            opacity: 1,
+            "arrow-scale": 1.2,
+            "z-index": 10,
           },
         },
       ],
@@ -231,6 +285,78 @@ function App() {
     };
   }, [analysis]);
 
+  // Apply highlighting whenever the impact report or selected file changes.
+  useEffect(() => {
+    const graph = graphInstance.current;
+    if (!graph || graph.destroyed()) return;
+
+    const allNodes = graph.nodes();
+    const allEdges = graph.edges();
+
+    allNodes.removeClass(
+      "impact-unrelated impact-changed impact-affected"
+    );
+    allEdges.removeClass("impact-unrelated impact-path");
+
+    if (
+      !impactReport ||
+      !selectedFile ||
+      impactReport.changedFile !== selectedFile.path
+    ) {
+      return;
+    }
+
+    // Dim everything first, then restore emphasis to relevant elements.
+    allNodes.addClass("impact-unrelated");
+    allEdges.addClass("impact-unrelated");
+
+    const changedNode = graph.getElementById(impactReport.changedFile);
+
+    if (changedNode.length > 0) {
+      changedNode.removeClass("impact-unrelated");
+      changedNode.addClass("impact-changed");
+    }
+
+    const affectedPaths = new Set(
+      impactReport.impactedFiles.map((file) => file.path)
+    );
+
+    for (const affectedPath of affectedPaths) {
+      const node = graph.getElementById(affectedPath);
+
+      if (node.length > 0) {
+        node.removeClass("impact-unrelated");
+        node.addClass("impact-affected");
+      }
+    }
+
+    // dependencyChain is ordered from the changed file outward.
+    // Graph edges run in the opposite direction: importer -> dependency.
+    const pathEdges = new Set<string>();
+
+    for (const impactedFile of impactReport.impactedFiles) {
+      const chain = impactedFile.dependencyChain;
+
+      for (let index = 0; index < chain.length - 1; index += 1) {
+        const dependencyPath = chain[index];
+        const dependentPath = chain[index + 1];
+
+        if (dependencyPath && dependentPath) {
+          pathEdges.add(`${dependentPath}\u0000${dependencyPath}`);
+        }
+      }
+    }
+
+    allEdges.forEach((edge) => {
+      const key = `${edge.data("source")}\u0000${edge.data("target")}`;
+
+      if (pathEdges.has(key)) {
+        edge.removeClass("impact-unrelated");
+        edge.addClass("impact-path");
+      }
+    });
+  }, [impactReport, selectedFile, analysis]);
+
   async function handleAnalyze(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -263,7 +389,6 @@ function App() {
       return;
     }
 
-    // Capture both the request ID and selected path for this analysis.
     const requestId = ++impactRequestId.current;
     const requestedFilePath = selectedFile.path;
     const requestedRepository = analysis.repository;
@@ -278,10 +403,9 @@ function App() {
         requestedFilePath
       );
 
-      // Ignore results if the user selected another file or started
-      // a newer impact request while this request was running.
       if (impactRequestId.current !== requestId) return;
 
+      // Only apply a report if the same file is still selected.
       setImpactReport(report);
     } catch (err) {
       if (impactRequestId.current !== requestId) return;
@@ -320,6 +444,10 @@ function App() {
         { queue: false }
       );
     }
+  }
+
+  function clearHighlights() {
+    clearImpactState();
   }
 
   function rearrangeGraph() {
@@ -431,6 +559,11 @@ function App() {
 
             {analysis && (
               <div className="graph-actions">
+                {impactReport && (
+                  <button type="button" onClick={clearHighlights}>
+                    Clear highlights
+                  </button>
+                )}
                 <button type="button" onClick={fitGraph}>
                   Fit graph
                 </button>
