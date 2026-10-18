@@ -9,11 +9,24 @@ import {
   type AnalyzedFile,
   type ApiHealth,
   type ChangeImpactReport,
+  type ImpactedFile,
   type RepositoryAnalysis,
 } from "./api";
 import "./App.css";
 
 cytoscape.use(dagre);
+
+// Detect conventional test files by filename or test-directory placement.
+// This identifies likely tests; it does not prove that they cover a file.
+function isTestFile(filePath: string): boolean {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const fileName = normalizedPath.split("/").pop() ?? normalizedPath;
+
+  return (
+    /\.(test|spec)\.[^.]+$/i.test(fileName) ||
+    /(^|\/)(__tests__|tests?)(\/|$)/i.test(normalizedPath)
+  );
+}
 
 const graphLayout = {
   name: "dagre" as const,
@@ -42,6 +55,8 @@ function App() {
     useState<ChangeImpactReport | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [impactError, setImpactError] = useState<string | null>(null);
+  const [selectedImpactFile, setSelectedImpactFile] =
+    useState<ImpactedFile | null>(null);
 
   const graphContainer = useRef<HTMLDivElement>(null);
   const graphInstance = useRef<Core | null>(null);
@@ -52,6 +67,7 @@ function App() {
     setImpactReport(null);
     setImpactLoading(false);
     setImpactError(null);
+    setSelectedImpactFile(null);
   }
 
   useEffect(() => {
@@ -299,9 +315,7 @@ function App() {
     allEdges.removeClass("impact-unrelated impact-path");
 
     if (
-      !impactReport ||
-      !selectedFile ||
-      impactReport.changedFile !== selectedFile.path
+      !impactReport
     ) {
       return;
     }
@@ -383,29 +397,25 @@ function App() {
     }
   }
 
-  async function handleAnalyzeImpact() {
-    if (!analysis || !selectedFile) {
-      setImpactError("Select a file before analyzing its impact.");
+  async function runImpactAnalysis(filePath: string) {
+    if (!analysis) {
+      setImpactError("Analyze a repository first.");
       return;
     }
 
     const requestId = ++impactRequestId.current;
-    const requestedFilePath = selectedFile.path;
     const requestedRepository = analysis.repository;
 
     setImpactLoading(true);
     setImpactError(null);
     setImpactReport(null);
+    setSelectedImpactFile(null);
 
     try {
-      const report = await analyzeChangeImpact(
-        requestedRepository,
-        requestedFilePath
-      );
+      const report = await analyzeChangeImpact(requestedRepository, filePath);
 
       if (impactRequestId.current !== requestId) return;
 
-      // Only apply a report if the same file is still selected.
       setImpactReport(report);
     } catch (err) {
       if (impactRequestId.current !== requestId) return;
@@ -418,6 +428,21 @@ function App() {
         setImpactLoading(false);
       }
     }
+  }
+
+  async function handleAnalyzeImpact() {
+    if (!analysis || !selectedFile) {
+      setImpactError("Select a file before analyzing its impact.");
+      return;
+    }
+
+    await runImpactAnalysis(selectedFile.path);
+  }
+
+  function handleInspectImpactedFile(_item: ImpactedFile, file: AnalyzedFile) {
+    // Inspect navigates to the file and clears the previous report.
+    // The user can run Analyze Impact explicitly for this newly selected file.
+    selectFile(file);
   }
 
   const fileName = (filePath: string) =>
@@ -690,8 +715,7 @@ function App() {
                 )}
               </div>
 
-              {impactReport &&
-                impactReport.changedFile === selectedFile.path && (
+              {impactReport && impactReport.changedFile === selectedFile.path && (
                   <div className="detail-section impact-report">
                     <span className="detail-label">Impact report</span>
                     <p className="file-path">
@@ -711,56 +735,112 @@ function App() {
                       <strong>{impactReport.transitiveDependents}</strong>
                     </div>
 
-                    {impactReport.impactedFiles.length === 0 ? (
-                      <p className="muted">
-                        No dependent files were found in the current graph.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="detail-label">
-                          Potentially affected files
-                        </p>
-                        <ul className="detail-list impact-file-list">
-                          {impactReport.impactedFiles.map((item) => {
-                            const file = analysis?.files.find(
-                              (candidate) => candidate.path === item.path
-                            );
-
-                            return (
-                              <li
-                                key={item.path}
-                                className="impact-file-item"
-                              >
-                                <div className="impact-file-info">
-                                  <span title={item.path}>
-                                    {fileName(item.path)}
-                                  </span>
-                                  <small>
-                                    {item.relationship} · distance {item.distance}
-                                  </small>
-                                  <small
-                                    title={item.dependencyChain.join(" → ")}
-                                  >
-                                    {item.dependencyChain
-                                      .map(fileName)
-                                      .join(" → ")}
-                                  </small>
-                                </div>
-                                {file && (
-                                  <button
-                                    type="button"
-                                    className="text-button"
-                                    onClick={() => selectFile(file)}
-                                  >
-                                    Open
-                                  </button>
-                                )}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </>
+                    {selectedImpactFile && (
+                      <div className="impact-path-details">
+                        <p className="detail-label">Why this file is affected</p>
+                        <p className="file-path">{selectedImpactFile.path}</p>
+                        <div className="stat-row">
+                          <span>Relationship</span>
+                          <strong>{selectedImpactFile.relationship}</strong>
+                        </div>
+                        <div className="stat-row">
+                          <span>Impact depth</span>
+                          <strong>{selectedImpactFile.distance} hop{selectedImpactFile.distance === 1 ? "" : "s"}</strong>
+                        </div>
+                        {selectedImpactFile.importLine != null && (
+                          <div className="stat-row">
+                            <span>Import line</span>
+                            <strong>:{selectedImpactFile.importLine}</strong>
+                          </div>
+                        )}
+                        <p className="detail-label">Dependency chain</p>
+                        <ol className="impact-chain">
+                          {selectedImpactFile.dependencyChain.map((path, index) => (
+                            <li key={`${path}-${index}`}>
+                              <span>{fileName(path)}</span>
+                              <small>{path}</small>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
                     )}
+
+                    {(() => {
+                      const testFiles = impactReport.impactedFiles.filter((item) =>
+                        isTestFile(item.path)
+                      );
+                      const sourceFiles = impactReport.impactedFiles.filter((item) =>
+                        !isTestFile(item.path)
+                      );
+
+                      const renderImpactedFile = (item: ImpactedFile) => {
+                        const file = analysis?.files.find(
+                          (candidate) => candidate.path === item.path
+                        );
+
+                        return (
+                          <li key={item.path} className="impact-file-item">
+                            <div className="impact-file-info">
+                              <span title={item.path}>{fileName(item.path)}</span>
+                              <small>
+                                {item.relationship} · distance {item.distance}
+                              </small>
+                              <small title={item.dependencyChain.join(" → ")}>
+                                {item.dependencyChain.map(fileName).join(" → ")}
+                              </small>
+                            </div>
+                            {file && (
+                              <button
+                                type="button"
+                                className="text-button"
+                                onClick={() => handleInspectImpactedFile(item, file)}
+                              >
+                                Inspect
+                              </button>
+                            )}
+                          </li>
+                        );
+                      };
+
+                      if (impactReport.impactedFiles.length === 0) {
+                        return (
+                          <p className="muted">
+                            No dependent files were found in the current graph.
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <>
+                          <p className="detail-label">Potentially affected files</p>
+                          {sourceFiles.length > 0 ? (
+                            <ul className="detail-list impact-file-list">
+                              {sourceFiles.map(renderImpactedFile)}
+                            </ul>
+                          ) : (
+                            <p className="muted">No non-test files were identified.</p>
+                          )}
+
+                          <p className="detail-label">Potentially affected tests</p>
+                          {testFiles.length > 0 ? (
+                            <>
+                              <ul className="detail-list impact-file-list">
+                                {testFiles.map(renderImpactedFile)}
+                              </ul>
+                              <p className="muted">
+                                These are test files detected by naming or folder conventions.
+                                Their presence does not confirm that they cover the changed code.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="muted">
+                              No test files were detected among the impacted files. Tests that
+                              do not have a detected dependency may not appear here.
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     <p className="muted impact-disclaimer">
                       These files are potential impacts based on detected
