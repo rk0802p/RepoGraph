@@ -440,9 +440,27 @@ function App() {
   }
 
   function handleInspectImpactedFile(_item: ImpactedFile, file: AnalyzedFile) {
-    // Inspect navigates to the file and clears the previous report.
-    // The user can run Analyze Impact explicitly for this newly selected file.
-    selectFile(file);
+    // Invalidate any in-flight impact request and immediately discard the old
+    // report before switching the inspector to the inspected file.
+    clearImpactState();
+    setSelectedFile(file);
+
+    const graph = graphInstance.current;
+    if (!graph || graph.destroyed()) return;
+
+    const node = graph.getElementById(file.path);
+    if (node.length === 0) return;
+
+    graph.elements().unselect();
+    node.select();
+
+    graph.animate(
+      {
+        center: { eles: node },
+        duration: 250,
+      },
+      { queue: false }
+    );
   }
 
   const fileName = (filePath: string) =>
@@ -715,7 +733,9 @@ function App() {
                 )}
               </div>
 
-              {impactReport && impactReport.changedFile === selectedFile.path && (
+              {impactReport &&
+                selectedFile &&
+                impactReport.changedFile === selectedFile.path && (
                   <div className="detail-section impact-report">
                     <span className="detail-label">Impact report</span>
                     <p className="file-path">
@@ -864,3 +884,4 @@ function App() {
 }
 
 export default App;
+
