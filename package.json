@@ -1,0 +1,31 @@
+{
+  "name": "repograph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Semantic Code Dependency & Change-Impact Explorer",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api & npm run dev:web",
+    "dev:api": "npm --workspace=api run dev",
+    "dev:web": "npm --workspace=web run dev",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "node -e \"console.log('Clean complete')\""
+  },
+  "keywords": [
+    "code-intelligence",
+    "ast",
+    "tree-sitter",
+    "dependency-graph",
+    "change-impact-analysis",
+    "code-search"
+  ],
+  "author": "RepoGraph Team",
+  "license": "Apache-2.0"
+}

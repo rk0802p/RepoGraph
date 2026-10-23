@@ -18,7 +18,10 @@ __pycache__/
 *.py[cod]
 
 # IDE and operating system
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
 .idea/
 .DS_Store
 Thumbs.db

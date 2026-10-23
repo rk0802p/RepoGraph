@@ -1,24 +1,24 @@
+import { createApp } from './app.js';
+import { config } from './config/index.js';
 
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
+const app = createApp();
 
-dotenv.config();
+const server = app.listen(config.port, () => {
+  console.log(`\n======================================================`);
+  console.log(`🚀 RepoGraph API running on http://localhost:${config.port}`);
+  console.log(`📍 Environment: ${config.nodeEnv}`);
+  console.log(`📡 Health Check: http://localhost:${config.port}/api/health`);
+  console.log(`======================================================\n`);
+});
 
-const app = express();
-const PORT = Number(process.env.PORT) || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-app.get("/api/health", (_req, res) => {
-  res.status(200).json({
-    status: "ok",
-    message: "RepoGraph API is running",
-    timestamp: new Date().toISOString()
+// Graceful shutdown
+function shutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Gracefully shutting down...`);
+  server.close(() => {
+    console.log('RepoGraph API server closed.');
+    process.exit(0);
   });
-});
+}
 
-app.listen(PORT, () => {
-  console.log(`RepoGraph API running at http://localhost:${PORT}`);
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
