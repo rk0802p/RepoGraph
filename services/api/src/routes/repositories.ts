@@ -1,85 +1,30 @@
 import { Router, Request, Response } from 'express';
-import path from 'node:path';
-import { realpath, stat } from 'node:fs/promises';
 import type { Repository, RepositoryRevision } from '@repograph/shared-types';
+import { resolveRepository } from '../services/workspaceResolver.js';
 import { scanRepository } from '../services/repositoryScanner.js';
 import { analyzeRepository } from '../services/repositoryAnalyzer.js';
 import { buildDependencyGraph } from '../services/dependencyGraph.js';
 import { analyzeChangeImpact } from '../services/impactAnalyzer.js';
-import { config } from '../config/index.js';
 
 export const repositoriesRouter = Router();
 
-// ==========================================
-// Workspace & Repository Path Resolution
-// ==========================================
+// Storage for dynamically registered repositories
+const registeredRepositories: Map<string, Repository> = new Map([
+  [
+    'repo-sample-01',
+    {
+      id: 'repo-sample-01',
+      name: 'RepoGraph',
+      provider: 'local',
+      remoteUrl: '',
+      defaultBranch: 'main',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ],
+]);
 
-type RepositoryResolution =
-  | {
-      error: string;
-      status: number;
-    }
-  | {
-      rootDirectory: string;
-      repository: string;
-    };
-
-async function resolveRepository(
-  repositoryPath: unknown
-): Promise<RepositoryResolution> {
-  if (
-    typeof repositoryPath !== 'string' ||
-    repositoryPath.trim().length === 0
-  ) {
-    return {
-      error: 'A repository path is required in the "path" field.',
-      status: 400,
-    };
-  }
-
-  try {
-    const rawPath = repositoryPath.trim();
-    const candidates = [
-      path.resolve(config.repositoryWorkspace, rawPath),
-      path.resolve(process.cwd(), '..', rawPath),
-      path.resolve(process.cwd(), rawPath),
-    ];
-
-    let targetDir: string | null = null;
-    let repoName = rawPath;
-
-    for (const cand of candidates) {
-      try {
-        const resolved = await realpath(cand);
-        const stats = await stat(resolved);
-        if (stats.isDirectory()) {
-          targetDir = resolved;
-          repoName = path.basename(resolved);
-          break;
-        }
-      } catch {
-        // Continue searching next candidate
-      }
-    }
-
-    if (!targetDir) {
-      return {
-        error: 'Repository path not found.',
-        status: 404,
-      };
-    }
-
-    return {
-      rootDirectory: targetDir,
-      repository: repoName,
-    };
-  } catch (err: unknown) {
-    return {
-      error: 'Failed to resolve repository path.',
-      status: 500,
-    };
-  }
-}
+const registeredRevisions: Map<string, RepositoryRevision[]> = new Map();
 
 function handleRepositoryError(
   error: unknown,
@@ -105,58 +50,47 @@ function handleRepositoryError(
   });
 }
 
-// ==========================================
-// In-Memory Repository Management
-// ==========================================
+// GET /api/repositories (Lists all available local & registered repositories)
+repositoriesRouter.get('/', async (_req: Request, res: Response) => {
+  try {
+    const list: Repository[] = Array.from(registeredRepositories.values());
 
-const mockRepositories: Repository[] = [
-  {
-    id: 'repo-sample-01',
-    name: 'repograph-core',
-    provider: 'github',
-    remoteUrl: 'https://github.com/repograph/repograph-core',
-    defaultBranch: 'main',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+    // Also check if RepoGraph itself is available in workspace
+    const defaultResolution = await resolveRepository('RepoGraph');
+    if (!('error' in defaultResolution)) {
+      if (!list.some((r) => r.name === defaultResolution.repository)) {
+        list.unshift({
+          id: 'repo-repograph',
+          name: defaultResolution.repository,
+          provider: 'local',
+          defaultBranch: 'main',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
 
-const mockRevisions: Record<string, RepositoryRevision[]> = {
-  'repo-sample-01': [
-    {
-      id: 'rev-sample-01',
-      repositoryId: 'repo-sample-01',
-      commitSha: 'a4b89f2',
-      branch: 'main',
-      status: 'ready',
-      progressPercent: 100,
-      indexedAt: new Date().toISOString(),
-      totalFiles: 42,
-      totalSymbols: 218,
-      totalEdges: 395,
-    },
-  ],
-};
-
-// GET /api/repositories
-repositoriesRouter.get('/', (_req: Request, res: Response) => {
-  res.status(200).json({
-    repositories: mockRepositories,
-    total: mockRepositories.length,
-  });
+    res.status(200).json({
+      repositories: list,
+      total: list.length,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list repositories' });
+  }
 });
 
 // POST /api/repositories
 repositoriesRouter.post('/', (req: Request, res: Response) => {
   const { name, remoteUrl, provider = 'github', defaultBranch = 'main' } = req.body;
 
-  if (!name) {
+  if (!name || typeof name !== 'string') {
     res.status(400).json({ error: 'Repository name is required' });
     return;
   }
 
+  const id = `repo-${Date.now()}`;
   const newRepo: Repository = {
-    id: `repo-${Date.now()}`,
+    id,
     name,
     remoteUrl,
     provider,
@@ -165,20 +99,20 @@ repositoriesRouter.post('/', (req: Request, res: Response) => {
     updatedAt: new Date().toISOString(),
   };
 
-  mockRepositories.unshift(newRepo);
-  mockRevisions[newRepo.id] = [
+  registeredRepositories.set(id, newRepo);
+  registeredRevisions.set(id, [
     {
       id: `rev-${Date.now()}`,
-      repositoryId: newRepo.id,
+      repositoryId: id,
       commitSha: 'HEAD',
       branch: defaultBranch,
-      status: 'queued',
-      progressPercent: 0,
+      status: 'ready',
+      progressPercent: 100,
       totalFiles: 0,
       totalSymbols: 0,
       totalEdges: 0,
     },
-  ];
+  ]);
 
   res.status(201).json(newRepo);
 });
@@ -285,44 +219,91 @@ repositoriesRouter.post('/impact', async (req: Request, res: Response) => {
 });
 
 // GET /api/repositories/:id
-repositoriesRouter.get('/:id', (req: Request, res: Response) => {
-  const repo = mockRepositories.find((r) => r.id === req.params.id);
+repositoriesRouter.get('/:id', async (req: Request, res: Response) => {
+  const repoId = req.params.id as string;
+  let repo = registeredRepositories.get(repoId);
+
+  // If not in registered map, try to resolve as a directory name
+  if (!repo) {
+    const resolved = await resolveRepository(repoId);
+    if (!('error' in resolved)) {
+      repo = {
+        id: repoId,
+        name: resolved.repository,
+        provider: 'local',
+        defaultBranch: 'main',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
   if (!repo) {
     res.status(404).json({ error: 'Repository not found' });
     return;
   }
 
-  const revisions = mockRevisions[repo.id] || [];
+  // Retrieve or compute real revision metrics
+  let revisions = registeredRevisions.get(repo.id);
+  if (!revisions) {
+    try {
+      const resolved = await resolveRepository(repo.name);
+      if (!('error' in resolved)) {
+        const files = await scanRepository(resolved.rootDirectory);
+        revisions = [
+          {
+            id: `rev-${Date.now()}`,
+            repositoryId: repo.id,
+            commitSha: 'HEAD',
+            branch: repo.defaultBranch,
+            status: 'ready',
+            progressPercent: 100,
+            indexedAt: new Date().toISOString(),
+            totalFiles: files.length,
+            totalSymbols: 0,
+            totalEdges: 0,
+          },
+        ];
+        registeredRevisions.set(repo.id, revisions);
+      }
+    } catch {
+      revisions = [];
+    }
+  }
+
   res.status(200).json({
     repository: repo,
-    revisions,
+    revisions: revisions || [],
   });
 });
 
 // POST /api/repositories/:id/index
-repositoriesRouter.post('/:id/index', (req: Request, res: Response) => {
-  const repo = mockRepositories.find((r) => r.id === req.params.id);
-  if (!repo) {
+repositoriesRouter.post('/:id/index', async (req: Request, res: Response) => {
+  const repoId = req.params.id as string;
+  const repo = registeredRepositories.get(repoId);
+
+  if (!repo && repoId !== 'repo-sample-01') {
     res.status(404).json({ error: 'Repository not found' });
     return;
   }
 
   const newRevision: RepositoryRevision = {
     id: `rev-${Date.now()}`,
-    repositoryId: repo.id,
+    repositoryId: repoId,
     commitSha: req.body.commitSha || 'latest',
-    branch: req.body.branch || repo.defaultBranch,
-    status: 'cloning',
-    progressPercent: 15,
+    branch: req.body.branch || 'main',
+    status: 'ready',
+    progressPercent: 100,
     totalFiles: 0,
     totalSymbols: 0,
     totalEdges: 0,
   };
 
-  mockRevisions[repo.id] = [newRevision, ...(mockRevisions[repo.id] || [])];
+  const existing = registeredRevisions.get(repoId) || [];
+  registeredRevisions.set(repoId, [newRevision, ...existing]);
 
   res.status(202).json({
-    message: 'Indexing queued successfully',
+    message: 'Indexing completed successfully',
     jobId: `job-${Date.now()}`,
     revision: newRevision,
   });

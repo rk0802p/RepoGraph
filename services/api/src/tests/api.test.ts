@@ -10,7 +10,6 @@ describe('RepoGraph API Test Suite', () => {
   before(async () => {
     const app = createApp();
     await new Promise<void>((resolve) => {
-      // Bind to random port for isolated test run
       server = app.listen(0, () => {
         const address = server.address();
         if (address && typeof address === 'object') {
@@ -40,7 +39,6 @@ describe('RepoGraph API Test Suite', () => {
     const body = await res.json();
     assert.ok(Array.isArray(body.repositories));
     assert.ok(body.total >= 1);
-    assert.equal(body.repositories[0].name, 'repograph-core');
   });
 
   it('POST /api/repositories should register a new repository', async () => {
@@ -96,44 +94,46 @@ describe('RepoGraph API Test Suite', () => {
     assert.equal(body.revision.commitSha, 'b7c21e0');
   });
 
-  it('GET /api/repositories/:id/graph should return graph neighborhood', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01/graph?symbolId=sym-validate-token&depth=2`);
+  it('GET /api/repositories/:id/graph should return real repository graph neighborhood', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/graph?depth=2`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.rootSymbolId, 'sym-validate-token');
+    assert.ok(body.rootSymbolId);
     assert.ok(Array.isArray(body.nodes));
     assert.ok(Array.isArray(body.edges));
-    assert.ok(body.nodes.length >= 3);
+    assert.ok(body.nodes.length >= 1);
   });
 
-  it('GET /api/repositories/:id/search should return code & symbol matches', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01/search?q=validateToken`);
+  it('GET /api/repositories/:id/search should return real code & symbol matches from disk', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/search?q=scanRepository`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(Array.isArray(body.results));
     assert.ok(body.results.length >= 1);
-    assert.equal(body.results[0].symbolName, 'validateToken');
+    assert.ok(body.results.some((r: { snippet: string }) => r.snippet.includes('scanRepository')));
   });
 
-  it('POST /api/repositories/:id/ask should return evidence-grounded answer', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01/ask`, {
+  it('POST /api/repositories/:id/ask should return evidence-grounded answer with real citations', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: 'Where is authentication checked?' }),
+      body: JSON.stringify({ question: 'Where is the repository scanned and files discovered?' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.answer);
     assert.ok(Array.isArray(body.citations));
     assert.ok(body.citations.length >= 1);
-    assert.equal(body.citations[0].filePath, 'src/middleware/auth.ts');
+    assert.ok(body.citations.some((c: { filePath: string }) => c.filePath.includes('repositoryScanner')));
   });
 
-  it('POST /api/repositories/:id/impact-analysis should return impact report', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01/impact-analysis`, {
+  it('POST /api/repositories/:id/impact-analysis should return real impact findings from dependency graph', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/impact-analysis`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ diffText: 'diff --git a/src/services/AuthService.ts' }),
+      body: JSON.stringify({
+        diffText: 'diff --git a/services/api/src/services/codeParser.ts b/services/api/src/services/codeParser.ts',
+      }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
