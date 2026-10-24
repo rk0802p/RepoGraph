@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import path from 'node:path';
 
 dotenv.config();
 
@@ -8,6 +9,7 @@ export interface AppConfig {
   corsOrigin: string;
   databaseUrl: string;
   redisUrl: string;
+  repositoryWorkspace: string;
 }
 
 export const config: AppConfig = {
@@ -16,4 +18,7 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://repograph:repograph_secret@localhost:5432/repograph_db',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+  repositoryWorkspace: process.env.REPOSITORY_WORKSPACE
+    ? path.resolve(process.env.REPOSITORY_WORKSPACE)
+    : path.resolve(process.cwd(), '../..'),
 };

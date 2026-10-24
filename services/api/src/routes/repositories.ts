@@ -1,9 +1,119 @@
 import { Router, Request, Response } from 'express';
+import path from 'node:path';
+import { realpath, stat } from 'node:fs/promises';
 import type { Repository, RepositoryRevision } from '@repograph/shared-types';
+import { scanRepository } from '../services/repositoryScanner.js';
+import { analyzeRepository } from '../services/repositoryAnalyzer.js';
+import { buildDependencyGraph } from '../services/dependencyGraph.js';
+import { analyzeChangeImpact } from '../services/impactAnalyzer.js';
+import { config } from '../config/index.js';
 
 export const repositoriesRouter = Router();
 
-// In-memory demo store for immediate development before DB connection
+// ==========================================
+// Workspace & Repository Path Resolution
+// ==========================================
+
+const WORKSPACE_ROOT = config.repositoryWorkspace;
+
+type RepositoryResolution =
+  | {
+      error: string;
+      status: number;
+    }
+  | {
+      rootDirectory: string;
+      repository: string;
+    };
+
+async function resolveRepository(
+  repositoryPath: unknown
+): Promise<RepositoryResolution> {
+  if (
+    typeof repositoryPath !== 'string' ||
+    repositoryPath.trim().length === 0
+  ) {
+    return {
+      error: 'A repository path is required in the "path" field.',
+      status: 400,
+    };
+  }
+
+  try {
+    const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
+    const candidatePath = path.resolve(resolvedWorkspace, repositoryPath);
+    const resolvedRepository = await realpath(candidatePath);
+
+    const relativePath = path.relative(
+      resolvedWorkspace,
+      resolvedRepository
+    );
+
+    if (
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      return {
+        error: 'The repository must be inside the configured workspace.',
+        status: 403,
+      };
+    }
+
+    const repositoryStats = await stat(resolvedRepository);
+
+    if (!repositoryStats.isDirectory()) {
+      return {
+        error: 'The specified repository path must be a directory.',
+        status: 400,
+      };
+    }
+
+    return {
+      rootDirectory: resolvedRepository,
+      repository: relativePath === '' ? path.basename(resolvedRepository) : relativePath.split(path.sep).join('/'),
+    };
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'ENOENT') {
+      return {
+        error: 'Repository path not found.',
+        status: 404,
+      };
+    }
+    return {
+      error: 'Failed to resolve repository path.',
+      status: 500,
+    };
+  }
+}
+
+function handleRepositoryError(
+  error: unknown,
+  res: Response,
+  operation: string
+): void {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  ) {
+    res.status(404).json({
+      error: 'Repository path not found.',
+    });
+    return;
+  }
+
+  console.error(`${operation} failed:`, error);
+
+  res.status(500).json({
+    error: `${operation} failed.`,
+  });
+}
+
+// ==========================================
+// In-Memory Repository Management
+// ==========================================
+
 const mockRepositories: Repository[] = [
   {
     id: 'repo-sample-01',
@@ -76,6 +186,107 @@ repositoriesRouter.post('/', (req: Request, res: Response) => {
   ];
 
   res.status(201).json(newRepo);
+});
+
+// POST /api/repositories/scan (Disk Scanner)
+repositoriesRouter.post('/scan', async (req: Request, res: Response) => {
+  try {
+    const resolved = await resolveRepository(req.body?.path);
+
+    if ('error' in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
+      });
+      return;
+    }
+
+    const files = await scanRepository(resolved.rootDirectory);
+
+    res.status(200).json({
+      repository: resolved.repository,
+      totalFiles: files.length,
+      files,
+    });
+  } catch (error) {
+    handleRepositoryError(error, res, 'Repository scan');
+  }
+});
+
+// POST /api/repositories/analyze (AST + Dependency Graph Generator)
+repositoriesRouter.post('/analyze', async (req: Request, res: Response) => {
+  try {
+    const resolved = await resolveRepository(req.body?.path);
+
+    if ('error' in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
+      });
+      return;
+    }
+
+    const analysis = await analyzeRepository(
+      resolved.rootDirectory,
+      resolved.repository
+    );
+
+    const graph = buildDependencyGraph(analysis.files);
+
+    res.status(200).json({
+      ...analysis,
+      graph,
+    });
+  } catch (error) {
+    handleRepositoryError(error, res, 'Repository analysis');
+  }
+});
+
+// POST /api/repositories/impact (Change-Impact Graph Traversal)
+repositoriesRouter.post('/impact', async (req: Request, res: Response) => {
+  try {
+    const { path: repositoryPath, file: changedFile } = req.body ?? {};
+
+    if (
+      typeof changedFile !== 'string' ||
+      changedFile.trim().length === 0
+    ) {
+      res.status(400).json({
+        error: 'A file path is required in the "file" field.',
+      });
+      return;
+    }
+
+    const resolved = await resolveRepository(repositoryPath);
+
+    if ('error' in resolved) {
+      res.status(resolved.status).json({
+        error: resolved.error,
+      });
+      return;
+    }
+
+    const analysis = await analyzeRepository(
+      resolved.rootDirectory,
+      resolved.repository
+    );
+
+    const graph = buildDependencyGraph(analysis.files);
+
+    const result = analyzeChangeImpact(graph, changedFile);
+
+    if (!result.success) {
+      res.status(404).json({
+        error: result.error,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      repository: analysis.repository,
+      ...result.report,
+    });
+  } catch (error) {
+    handleRepositoryError(error, res, 'Change-impact analysis');
+  }
 });
 
 // GET /api/repositories/:id

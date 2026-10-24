@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@repograph/shared-types": "*",
+    "cytoscape": "^3.34.4",
+    "cytoscape-dagre": "^4.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
     "@types/node": "^22.10.7",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
