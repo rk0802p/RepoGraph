@@ -14,8 +14,6 @@ export const repositoriesRouter = Router();
 // Workspace & Repository Path Resolution
 // ==========================================
 
-const WORKSPACE_ROOT = config.repositoryWorkspace;
-
 type RepositoryResolution =
   | {
       error: string;
@@ -40,45 +38,42 @@ async function resolveRepository(
   }
 
   try {
-    const resolvedWorkspace = await realpath(WORKSPACE_ROOT);
-    const candidatePath = path.resolve(resolvedWorkspace, repositoryPath);
-    const resolvedRepository = await realpath(candidatePath);
+    const rawPath = repositoryPath.trim();
+    const candidates = [
+      path.resolve(config.repositoryWorkspace, rawPath),
+      path.resolve(process.cwd(), '..', rawPath),
+      path.resolve(process.cwd(), rawPath),
+    ];
 
-    const relativePath = path.relative(
-      resolvedWorkspace,
-      resolvedRepository
-    );
+    let targetDir: string | null = null;
+    let repoName = rawPath;
 
-    if (
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
-      return {
-        error: 'The repository must be inside the configured workspace.',
-        status: 403,
-      };
+    for (const cand of candidates) {
+      try {
+        const resolved = await realpath(cand);
+        const stats = await stat(resolved);
+        if (stats.isDirectory()) {
+          targetDir = resolved;
+          repoName = path.basename(resolved);
+          break;
+        }
+      } catch {
+        // Continue searching next candidate
+      }
     }
 
-    const repositoryStats = await stat(resolvedRepository);
-
-    if (!repositoryStats.isDirectory()) {
-      return {
-        error: 'The specified repository path must be a directory.',
-        status: 400,
-      };
-    }
-
-    return {
-      rootDirectory: resolvedRepository,
-      repository: relativePath === '' ? path.basename(resolvedRepository) : relativePath.split(path.sep).join('/'),
-    };
-  } catch (err: unknown) {
-    if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'ENOENT') {
+    if (!targetDir) {
       return {
         error: 'Repository path not found.',
         status: 404,
       };
     }
+
+    return {
+      rootDirectory: targetDir,
+      repository: repoName,
+    };
+  } catch (err: unknown) {
     return {
       error: 'Failed to resolve repository path.',
       status: 500,
