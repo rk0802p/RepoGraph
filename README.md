@@ -5,20 +5,22 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Express-4.21-lightgrey.svg)](https://expressjs.com/)
+[![Tree--sitter](https://img.shields.io/badge/Parser-Tree--sitter-green.svg)](https://tree-sitter.github.io/)
+[![Cytoscape.js](https://img.shields.io/badge/Visualization-Cytoscape.js-orange.svg)](https://js.cytoscape.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-336791.svg)](https://github.com/pgvector/pgvector)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
 
-**RepoGraph** is an open-source developer tool that turns an unfamiliar codebase into an explorable map of its structure, behavior, and relationships. It combines **AST static code analysis**, **dependency graphs**, **semantic code search**, and **evidence-grounded AI** to help engineers understand how a repository works and estimate what could break when code changes.
+**RepoGraph** is an open-source developer tool that turns an unfamiliar codebase into an explorable map of its structure, behavior, and relationships. It combines **Tree-sitter AST static code analysis**, **interactive dependency graphs**, **code search**, and **change-impact analysis** to help engineers understand how a repository works and estimate what could break when code changes.
 
 ---
 
 ## 1. Core Value Proposition
 
-- **Understand:** Discover how modules, functions, classes, API routes, and tests fit together.
-- **Search:** Find relevant code by behavior or intent (hybrid lexical + semantic search), even when the query does not match identifiers.
+- **Understand:** Discover how modules, functions, classes, and tests fit together across frontend and backend boundaries.
+- **Search:** Query symbols, functions, and file paths with relevance scoring and live source code snippets.
 - **Trace:** Follow dependency, call, and import chains across your repository.
-- **Assess (Signature Feature):** Analyze a Git diff to identify directly affected symbols, downstream consumers, and relevant test suites.
-- **Explain:** Generate AI answers and reports that cite the exact files, symbols, and lines supporting each claim.
+- **Assess (Signature Feature):** Analyze a changed file or Git diff to identify directly affected dependents, transitive reach, and candidate test suites.
+- **Explain:** Ask architecture questions and receive answers citing exact files, symbols, and lines of code.
 - **Verify:** Separate statically observed facts (`Observed`), high-probability dependencies (`Likely`), and inferred connections (`Uncertain`).
 
 ---
@@ -29,6 +31,8 @@
                                  +-----------------------------+
                                  |  React 19 + TypeScript Web  |
                                  |  Workspace (apps/web)       |
+                                 |  - Cytoscape.js + Dagre     |
+                                 |  - Change-Impact Visualizer |
                                  +--------------+--------------+
                                                 |
                                                 | HTTP / REST (Vite Proxy)
@@ -36,6 +40,9 @@
                                  +-----------------------------+
                                  |    Node.js / Express API    |
                                  |    (services/api)           |
+                                 |  - Tree-sitter AST Parser   |
+                                 |  - BFS Dependency Traverser |
+                                 |  - Modular Express Routes   |
                                  +-------+-------------+-------+
                                          |             |
                      +-------------------+             +------------------+
@@ -50,8 +57,8 @@
                       |                             +------------------------------------+
                       +-----------------------------+  Background Analysis Workers       |
                                                     |  (services/worker)                 |
-                                                    |  - Tree-sitter AST Parser          |
-                                                    |  - Graph Builder & Chunking        |
+                                                    |  - High-concurrency embeddings     |
+                                                    |  - Heavy batch chunking            |
                                                     +------------------------------------+
 ```
 
@@ -64,19 +71,27 @@ repograph/
 ├── apps/
 │   └── web/                     # React 19 + TypeScript workstation UI
 │       ├── src/
-│       │   ├── App.tsx          # 3-panel workspace (Explorer, Canvas, Inspector)
-│       │   ├── App.css          # Layout & card styles
-│       │   └── index.css        # Design tokens & dark mode styling
-│       └── vite.config.ts       # Vite bundler with API reverse-proxy
+│       │   ├── App.tsx          # Cytoscape + Dagre interactive dependency canvas
+│       │   ├── App.css          # Design system & visual impact highlight styles
+│       │   └── api.ts           # Typed API client connecting to backend
+│       └── vite.config.ts       # Code-split bundler with API reverse-proxy
 ├── services/
-│   ├── api/                     # Node.js + Express REST API
-│   │   └── src/
-│   │       ├── config/          # Validated environment configuration
-│   │       ├── middleware/      # Request logging & error handling
-│   │       ├── routes/          # Health, repositories, graph, search, analysis
-│   │       ├── app.ts           # Express application setup
-│   │       └── index.ts         # Bootstrap & graceful shutdown
-│   └── worker/                  # Python background ingestion & AST parser service
+│   ├── api/                     # Node.js + Express REST API & Code Intelligence
+│   │   ├── src/
+│   │   │   ├── services/        # Core static analysis & graph services
+│   │   │   │   ├── codeParser.ts        # Tree-sitter AST syntax parser
+│   │   │   │   ├── repositoryScanner.ts # File discovery & filter engine
+│   │   │   │   ├── importResolver.ts    # Path & index import resolution
+│   │   │   │   ├── repositoryAnalyzer.ts# Pipeline orchestrator
+│   │   │   │   ├── dependencyGraph.ts   # Directed graph construction
+│   │   │   │   ├── impactAnalyzer.ts    # Reverse BFS change-impact engine
+│   │   │   │   └── workspaceResolver.ts # Multi-root directory discovery
+│   │   │   ├── routes/          # Health, repositories, graph, search, analysis
+│   │   │   ├── middleware/      # Request logging & error handling
+│   │   │   ├── app.ts           # Express application setup
+│   │   │   └── index.ts         # Bootstrap & graceful shutdown
+│   │   └── tests/               # Unit and integration test suites
+│   └── worker/                  # Background worker scaffold
 ├── packages/
 │   └── shared-types/            # Shared TypeScript domain models & API contracts
 ├── database/
@@ -101,11 +116,9 @@ repograph/
 ### Step 1: Clone and Configure Environment
 
 ```bash
-# Clone the repository
 git clone https://github.com/your-username/RepoGraph.git
 cd RepoGraph
 
-# Create local environment config from template
 cp .env.example .env
 ```
 
@@ -117,22 +130,13 @@ Start PostgreSQL (with `pgvector`) and Redis:
 docker compose up -d
 ```
 
-Verify services are healthy:
-```bash
-docker compose ps
-```
-
 ### Step 3: Install Dependencies
-
-Using npm workspaces:
 
 ```bash
 npm install
 ```
 
 ### Step 4: Run Development Servers
-
-Run both the API and Web frontends:
 
 ```bash
 # Terminal 1: Start API Service (port 3000)
@@ -152,32 +156,55 @@ All routes are mounted under `/api`:
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/health` | Healthcheck & system uptime status |
-| `GET` | `/api/repositories` | List all registered repositories |
-| `POST` | `/api/repositories` | Register a new repository for indexing |
-| `GET` | `/api/repositories/:id` | Get repository metadata and revision snapshots |
+| `GET` | `/api/health` | Service health status, uptime, and timestamp |
+| `GET` | `/api/repositories` | List all discovered and registered repositories |
+| `POST` | `/api/repositories` | Register a new repository snapshot |
+| `GET` | `/api/repositories/:id` | Get repository details and revision statistics |
 | `POST` | `/api/repositories/:id/index` | Queue background indexing for a commit/branch |
-| `GET` | `/api/repositories/:id/graph` | Retrieve bounded graph neighborhood for a symbol |
-| `GET` | `/api/repositories/:id/search` | Query code & symbols (lexical, structural, hybrid) |
-| `POST` | `/api/repositories/:id/ask` | Evidence-grounded architecture Q&A |
+| `POST` | `/api/repositories/scan` | Scan physical directory for supported source files |
+| `POST` | `/api/repositories/analyze` | Parse AST with Tree-sitter & generate dependency graph |
+| `POST` | `/api/repositories/impact` | Perform reverse dependency BFS change-impact analysis |
+| `GET` | `/api/repositories/:id/graph` | Retrieve bounded graph neighborhood for symbol/file |
+| `GET` | `/api/repositories/:id/search` | Search symbols, identifiers, and source code on disk |
+| `POST` | `/api/repositories/:id/ask` | Evidence-grounded Q&A with verified file/line citations |
 | `POST` | `/api/repositories/:id/impact-analysis` | Submit Git diff and retrieve downstream impact report |
 
 ---
 
-## 6. Development Roadmap & Implementation Status
+## 6. Testing & Quality Verification
+
+Run all 31 unit, integration, and parser test suites across the monorepo:
+
+```bash
+# Run full test suite
+npm test
+
+# Run typechecks and production builds
+npm run build
+
+# Run linter
+npm --workspace=web run lint
+```
+
+---
+
+## 7. Development Roadmap & Implementation Status
 
 - [x] **Monorepo Foundation:** Workspaces configuration (`apps/web`, `services/api`, `packages/shared-types`).
 - [x] **Database Schema:** PostgreSQL + pgvector DDL migrations (`repositories`, `files`, `symbols`, `edges`, `code_chunks`, `analyses`).
 - [x] **Docker Dev Environment:** Containerized PostgreSQL 16 (`pgvector`) & Redis 7.
 - [x] **Shared Types Package:** Canonical TypeScript contracts for domain models & API responses.
 - [x] **API Gateway:** Express 4.x REST endpoints with modular routes, request logging, and error handling.
-- [x] **Interactive Workspace UI:** 3-panel developer workstation (Symbol tree, interactive graph canvas, detail inspector, Git diff impact simulator, architecture Q&A).
-- [ ] **Tree-sitter Parser Integration:** AST extraction pipeline for TypeScript/JavaScript/Python.
-- [ ] **Vector Embeddings Pipeline:** pgvector semantic code chunk indexing.
-- [ ] **Git Diff Engine:** Live diff line-to-AST symbol mapper for GitHub PR review bots.
+- [x] **Tree-sitter Parser Integration:** AST extraction pipeline for TypeScript, JavaScript, and TSX.
+- [x] **Dependency Graph Builder:** Resolution of relative, directory index, and explicit extension imports.
+- [x] **Change-Impact Analysis Engine:** Breadth-first search reverse dependency traversal with distance and dependency chain tracking.
+- [x] **Interactive Workspace UI:** Cytoscape.js + Dagre visual canvas with node dragging, zoom controls, file detail inspection, and visual impact highlighting.
+- [x] **Evidence-Grounded Q&A:** Code-aware retrieval generating answers citing exact file lines and snippets.
+- [ ] **Vector Embeddings Pipeline:** pgvector semantic code chunk indexing for natural-language intent search.
+- [ ] **Git Diff Engine:** Pull request review bot integration for GitHub Actions.
 
 ---
 
-## 7. License
+## 8. License
 
 Licensed under the [Apache 2.0 License](LICENSE).
