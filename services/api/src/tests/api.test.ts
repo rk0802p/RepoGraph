@@ -6,6 +6,7 @@ import { createApp } from '../app.js';
 describe('RepoGraph API Test Suite', () => {
   let server: Server;
   let baseUrl: string;
+  const testRepo = 'repo-sample-01';
 
   before(async () => {
     const app = createApp();
@@ -70,10 +71,10 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('GET /api/repositories/:id should return repository details', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01`);
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.repository.id, 'repo-sample-01');
+    assert.equal(body.repository.id, testRepo);
     assert.ok(Array.isArray(body.revisions));
   });
 
@@ -83,7 +84,7 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('POST /api/repositories/:id/index should queue indexing job', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/repo-sample-01/index`, {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/index`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commitSha: 'b7c21e0' }),
@@ -95,7 +96,7 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('GET /api/repositories/:id/graph should return real repository graph neighborhood', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/graph?depth=2`);
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/graph?depth=2`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.rootSymbolId);
@@ -105,7 +106,7 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('GET /api/repositories/:id/search should return real code & symbol matches from disk', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/search?q=scanRepository`);
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/search?q=scanRepository`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(Array.isArray(body.results));
@@ -114,7 +115,7 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('POST /api/repositories/:id/ask should return evidence-grounded answer with real citations', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/ask`, {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'Where is the repository scanned and files discovered?' }),
@@ -128,7 +129,7 @@ describe('RepoGraph API Test Suite', () => {
   });
 
   it('POST /api/repositories/:id/impact-analysis should return real impact findings from dependency graph', async () => {
-    const res = await fetch(`${baseUrl}/api/repositories/RepoGraph/impact-analysis`, {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/impact-analysis`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -143,11 +144,11 @@ describe('RepoGraph API Test Suite', () => {
     assert.equal(body.findings[0].priority, 'high');
   });
 
-  it('POST /api/repositories/scan should scan repository files', async () => {
+  it('POST /api/repositories/scan should scan repository files portably using dot "."', async () => {
     const res = await fetch(`${baseUrl}/api/repositories/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'RepoGraph' }),
+      body: JSON.stringify({ path: '.' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -155,11 +156,11 @@ describe('RepoGraph API Test Suite', () => {
     assert.ok(body.totalFiles >= 1);
   });
 
-  it('POST /api/repositories/analyze should extract symbols and dependency graph', async () => {
+  it('POST /api/repositories/analyze should extract symbols and dependency graph portably', async () => {
     const res = await fetch(`${baseUrl}/api/repositories/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'RepoGraph' }),
+      body: JSON.stringify({ path: '.' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -169,12 +170,12 @@ describe('RepoGraph API Test Suite', () => {
     assert.ok(Array.isArray(body.graph.edges));
   });
 
-  it('POST /api/repositories/impact should trace BFS change-impact dependents', async () => {
+  it('POST /api/repositories/impact should trace BFS change-impact dependents portably', async () => {
     const res = await fetch(`${baseUrl}/api/repositories/impact`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        path: 'RepoGraph',
+        path: '.',
         file: 'services/api/src/services/codeParser.ts',
       }),
     });
@@ -185,7 +186,7 @@ describe('RepoGraph API Test Suite', () => {
     assert.ok(Array.isArray(body.impactedFiles));
   });
 
-  it('POST /api/repositories/scan should reject directory traversal', async () => {
+  it('POST /api/repositories/scan should reject directory traversal attempts', async () => {
     const res = await fetch(`${baseUrl}/api/repositories/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

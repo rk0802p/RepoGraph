@@ -173,7 +173,7 @@ All routes are mounted under `/api`:
 
 ## 6. Testing & Quality Verification
 
-Run all 31 unit, integration, and parser test suites across the monorepo:
+Run all 45 unit, integration, and parser test suites across the monorepo:
 
 ```bash
 # Run full test suite
@@ -183,8 +183,17 @@ npm test
 npm run build
 
 # Run linter
-npm --workspace=web run lint
+npm run lint
+
+# Run empirical performance benchmark
+npm run benchmark
 ```
+
+---
+
+### Operational Model (v0.1.0)
+- **Default Execution Mode**: RepoGraph operates in high-performance **Direct-on-Disk & In-Memory Mode**. File scanning, Tree-sitter AST extraction, import resolution, and BFS change-impact traversals execute via fast native bindings in the Node API service without requiring an external database to run.
+- **Enterprise Infrastructure (Blueprint)**: The included PostgreSQL 16 + `pgvector` migration (`0001_initial_schema.sql`) and Redis container services provide the persistence and queueing blueprint for multi-tenant repositories, persistent vector embeddings, and background worker offloading.
 
 ---
 

@@ -13,7 +13,7 @@ export type RepositoryResolution =
       repository: string;
     };
 
-function findMonorepoRoot(startDir: string): string {
+export function findMonorepoRoot(startDir: string): string {
   let curr = path.resolve(startDir);
   while (true) {
     if (existsSync(path.join(curr, '.git')) || existsSync(path.join(curr, 'package.json'))) {
@@ -28,14 +28,17 @@ function findMonorepoRoot(startDir: string): string {
   return path.resolve(startDir);
 }
 
-function isPathInside(parent: string, child: string): boolean {
+/**
+ * Checks if candidate path is strictly inside or equal to the parent root directory.
+ */
+export function isPathInside(parent: string, child: string): boolean {
   const rel = path.relative(path.resolve(parent), path.resolve(child));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 /**
  * Resolves a repository name, relative path, or identifier to a validated directory.
- * Includes containment verification to prevent directory traversal attacks.
+ * Strict workspace containment ensures paths cannot escape the allowed workspace boundaries.
  */
 export async function resolveRepository(
   repositoryPath: unknown
@@ -50,7 +53,7 @@ export async function resolveRepository(
     };
   }
 
-  // Reject null bytes or dangerous path components
+  // Reject null bytes
   if (repositoryPath.includes('\0')) {
     return {
       error: 'Invalid repository path.',
@@ -61,34 +64,46 @@ export async function resolveRepository(
   try {
     const rawPath = repositoryPath.trim();
     const monorepoRoot = findMonorepoRoot(process.cwd());
+    const monorepoBase = path.basename(monorepoRoot).toLowerCase();
 
-    // If identifier matches monorepo or standard sample id, resolve immediately
-    if (
+    // Canonical allowed workspace roots (strictly monorepoRoot and explicit REPOSITORY_WORKSPACE)
+    const allowedRoots: string[] = [];
+    try {
+      allowedRoots.push(await realpath(monorepoRoot));
+    } catch {
+      allowedRoots.push(path.resolve(monorepoRoot));
+    }
+
+    if (process.env.REPOSITORY_WORKSPACE) {
+      try {
+        allowedRoots.push(await realpath(config.repositoryWorkspace));
+      } catch {
+        allowedRoots.push(path.resolve(config.repositoryWorkspace));
+      }
+    }
+
+    // Portable aliases for current repository checkout (regardless of checkout folder name)
+    const isCurrentRepoAlias =
+      rawPath === '.' ||
+      rawPath === '' ||
       rawPath === 'repo-sample-01' ||
       rawPath === 'repo-repograph' ||
-      rawPath.toLowerCase() === path.basename(monorepoRoot).toLowerCase() ||
-      rawPath === '.' ||
-      rawPath === ''
-    ) {
+      rawPath.toLowerCase() === 'repograph' ||
+      rawPath.toLowerCase() === 'repograph-main' ||
+      rawPath.toLowerCase() === 'repograph-master' ||
+      rawPath.toLowerCase() === monorepoBase;
+
+    if (isCurrentRepoAlias) {
       return {
-        rootDirectory: monorepoRoot,
-        repository: path.basename(monorepoRoot),
+        rootDirectory: allowedRoots[0],
+        repository: path.basename(allowedRoots[0]),
       };
     }
 
-    // Allowed container roots
-    const allowedRoots = [
-      monorepoRoot,
-      config.repositoryWorkspace,
-      path.dirname(monorepoRoot),
-    ];
-
-    // Try candidates
+    // Only search within explicitly allowed roots
     const candidates = [
-      path.resolve(config.repositoryWorkspace, rawPath),
-      path.resolve(monorepoRoot, '..', rawPath),
-      path.resolve(monorepoRoot, rawPath),
-      path.resolve(process.cwd(), rawPath),
+      path.resolve(allowedRoots[0], rawPath),
+      ...(process.env.REPOSITORY_WORKSPACE ? [path.resolve(config.repositoryWorkspace, rawPath)] : []),
     ];
 
     let targetDir: string | null = null;
@@ -115,7 +130,7 @@ export async function resolveRepository(
       };
     }
 
-    // Security check: Ensure resolved target directory is strictly within allowed workspace roots
+    // Strict containment verification: targetDir MUST be contained inside one of allowedRoots
     const isContained = allowedRoots.some((allowed) => isPathInside(allowed, targetDir!));
     if (!isContained) {
       return {
