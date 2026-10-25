@@ -143,6 +143,57 @@ describe('RepoGraph API Test Suite', () => {
     assert.equal(body.findings[0].priority, 'high');
   });
 
+  it('POST /api/repositories/scan should scan repository files', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'RepoGraph' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.files));
+    assert.ok(body.totalFiles >= 1);
+  });
+
+  it('POST /api/repositories/analyze should extract symbols and dependency graph', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'RepoGraph' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.files));
+    assert.ok(body.graph);
+    assert.ok(Array.isArray(body.graph.nodes));
+    assert.ok(Array.isArray(body.graph.edges));
+  });
+
+  it('POST /api/repositories/impact should trace BFS change-impact dependents', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/impact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: 'RepoGraph',
+        file: 'services/api/src/services/codeParser.ts',
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.changedFile, 'services/api/src/services/codeParser.ts');
+    assert.ok(typeof body.totalImpactedFiles === 'number');
+    assert.ok(Array.isArray(body.impactedFiles));
+  });
+
+  it('POST /api/repositories/scan should reject directory traversal', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '../../../../../../Windows' }),
+    });
+    assert.ok(res.status === 403 || res.status === 404);
+  });
+
   it('GET /api/nonexistent should return 404 error format', async () => {
     const res = await fetch(`${baseUrl}/api/nonexistent`);
     assert.equal(res.status, 404);

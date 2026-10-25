@@ -1,6 +1,6 @@
-
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { config } from "../config/index.js";
 
 export type SourceFile = {
   path: string;
@@ -29,20 +29,26 @@ const IGNORED_DIRECTORIES = new Set([
   "__pycache__",
 ]);
 
-const MAX_FILES = 10_000;
-const MAX_DEPTH = 30;
+export interface ScanOptions {
+  maxFiles?: number;
+  maxDepth?: number;
+}
 
 export async function scanRepository(
-  rootDirectory: string
+  rootDirectory: string,
+  options: ScanOptions = {}
 ): Promise<SourceFile[]> {
   const root = path.resolve(rootDirectory);
   const results: SourceFile[] = [];
+
+  const maxFiles = options.maxFiles ?? config.limits.maxFiles;
+  const maxDepth = options.maxDepth ?? config.limits.maxDepth;
 
   async function walk(
     currentDirectory: string,
     depth: number
   ): Promise<void> {
-    if (depth > MAX_DEPTH || results.length >= MAX_FILES) {
+    if (depth > maxDepth || results.length >= maxFiles) {
       return;
     }
 
@@ -51,7 +57,7 @@ export async function scanRepository(
     });
 
     for (const entry of entries) {
-      if (results.length >= MAX_FILES) {
+      if (results.length >= maxFiles) {
         break;
       }
 

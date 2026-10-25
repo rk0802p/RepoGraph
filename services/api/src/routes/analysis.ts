@@ -266,7 +266,7 @@ analysisRouter.post('/:id/impact-analysis', async (req: Request, res: Response) 
     const report: ImpactAnalysisReport = {
       id: `analysis-${Date.now()}`,
       repositoryId: resolved.repository,
-      baseRevisionSha: 'a4b89f2',
+      baseRevisionSha: (req.body?.baseRevisionSha as string) || 'HEAD~1',
       targetRevisionSha: 'HEAD',
       createdAt: new Date().toISOString(),
       summary: {

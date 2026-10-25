@@ -16,6 +16,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "benchmark": "tsx scripts/benchmark.ts",
     "clean": "node -e \"console.log('Clean complete')\""
   },
   "keywords": [
