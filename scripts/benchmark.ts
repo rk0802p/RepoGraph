@@ -2,11 +2,12 @@
  * RepoGraph Performance & Architectural Benchmark Suite
  *
  * Methodological Design:
- * - Includes dedicated warm-up iterations to eliminate V8 JIT compilation anomalies.
+ * - Dedicated warm-up iterations to eliminate V8 JIT compilation anomalies.
  * - Separates import resolution latency from graph construction latency.
- * - Tests multi-iteration BFS traversal across multiple node depths (high-degree, intermediate, leaf).
- * - Tracks continuous heap samples to record true peak memory usage.
- * - Validates correctness assertions (nodes, edges, symbol counts, impact integrity).
+ * - Multi-iteration BFS traversal across multiple node depths (high-degree, intermediate, leaf).
+ * - Multi-scale synthetic workloads (50 and 150 modules) evaluating graph and BFS scalability.
+ * - Continuous heap sampling to observe true peak memory usage.
+ * - Validates ground-truth correctness assertions (nodes, edges, symbol counts, impact integrity).
  * - Transparently scoped as empirical project measurements on the host hardware.
  */
 
@@ -20,6 +21,7 @@ import { parseCode, type ParsedCode } from '../services/api/src/services/codePar
 import { resolveImports } from '../services/api/src/services/importResolver.js';
 import { buildDependencyGraph } from '../services/api/src/services/dependencyGraph.js';
 import { analyzeChangeImpact } from '../services/api/src/services/impactAnalyzer.js';
+import type { AnalyzedFile } from '../services/api/src/services/repositoryAnalyzer.js';
 
 interface LatencyStats {
   minMs: number;
@@ -28,17 +30,19 @@ interface LatencyStats {
   p50Ms: number;
   p90Ms: number;
   p95Ms: number;
+  p99Ms: number;
 }
 
 function calculateStats(samples: number[]): LatencyStats {
   if (samples.length === 0) {
-    return { minMs: 0, maxMs: 0, meanMs: 0, p50Ms: 0, p90Ms: 0, p95Ms: 0 };
+    return { minMs: 0, maxMs: 0, meanMs: 0, p50Ms: 0, p90Ms: 0, p95Ms: 0, p99Ms: 0 };
   }
   const sorted = [...samples].sort((a, b) => a - b);
   const sum = sorted.reduce((acc, v) => acc + v, 0);
   const p50 = sorted[Math.floor(sorted.length * 0.50)];
   const p90 = sorted[Math.floor(sorted.length * 0.90)];
   const p95 = sorted[Math.floor(sorted.length * 0.95)];
+  const p99 = sorted[Math.floor(sorted.length * 0.99)];
 
   return {
     minMs: Number(sorted[0].toFixed(3)),
@@ -47,7 +51,33 @@ function calculateStats(samples: number[]): LatencyStats {
     p50Ms: Number(p50.toFixed(3)),
     p90Ms: Number(p90.toFixed(3)),
     p95Ms: Number(p95.toFixed(3)),
+    p99Ms: Number(p99.toFixed(3)),
   };
+}
+
+function generateSyntheticRepository(moduleCount: number, edgeDensity = 2.5): AnalyzedFile[] {
+  const files: AnalyzedFile[] = [];
+  for (let i = 0; i < moduleCount; i++) {
+    const modPath = `src/module_${String(i).padStart(3, '0')}.ts`;
+    const deps: string[] = [];
+    const numDeps = Math.min(i, Math.round(edgeDensity));
+    for (let d = 1; d <= numDeps; d++) {
+      deps.push(`src/module_${String(i - d).padStart(3, '0')}.ts`);
+    }
+    files.push({
+      path: modPath,
+      language: 'TypeScript',
+      extension: '.ts',
+      symbols: [
+        { name: `Module${i}Class`, kind: 'class', startLine: 1, endLine: 20 },
+        { name: `module${i}Function`, kind: 'function', startLine: 22, endLine: 40 },
+      ],
+      imports: deps.map((d, idx) => ({ source: `./${path.basename(d, '.ts')}`, startLine: idx + 1 })),
+      resolvedImports: deps.map((d, idx) => ({ source: `./${path.basename(d, '.ts')}`, startLine: idx + 1, resolvedPath: d })),
+      dependencies: deps,
+    });
+  }
+  return files;
 }
 
 async function runBenchmark() {
@@ -243,7 +273,6 @@ async function runBenchmark() {
   console.log(`🎯 [Benchmark 4: Reverse BFS Change-Impact Traversal Performance]`);
   const activeGraph = buildDependencyGraph(analyzedFilesBaseline);
 
-  // Dynamically select target nodes: high-degree node, intermediate node, leaf node
   const inDegreeMap = new Map<string, number>();
   for (const edge of activeGraph.edges) {
     inDegreeMap.set(edge.target, (inDegreeMap.get(edge.target) || 0) + 1);
@@ -254,16 +283,15 @@ async function runBenchmark() {
   );
 
   const targetsToBenchmark = [
-    sortedByDependents[0]?.path, // High-impact central hub
-    sortedByDependents[Math.floor(sortedByDependents.length / 2)]?.path, // Intermediate node
-    sortedByDependents[sortedByDependents.length - 1]?.path, // Leaf node
+    sortedByDependents[0]?.path,
+    sortedByDependents[Math.floor(sortedByDependents.length / 2)]?.path,
+    sortedByDependents[sortedByDependents.length - 1]?.path,
   ].filter((p): p is string => Boolean(p));
 
   const allBfsLatencies: number[] = [];
   const targetSummaries: Array<{ file: string; direct: number; total: number; meanMs: number }> = [];
 
   for (const target of targetsToBenchmark) {
-    // Warm-up for target
     analyzeChangeImpact(activeGraph, target);
 
     const targetRuns: number[] = [];
@@ -301,7 +329,7 @@ async function runBenchmark() {
   console.log(`   - Aggregate BFS Latency: P50 = ${bfsStats.p50Ms} ms | Mean = ${bfsStats.meanMs} ms | P95 = ${bfsStats.p95Ms} ms\n`);
 
   // -------------------------------------------------------------------------
-  // 5. Code Search & AST Symbol Query Latency (With Reported Match Counts)
+  // 5. Code Search & AST Symbol Query Latency
   // -------------------------------------------------------------------------
   console.log(`🔎 [Benchmark 5: Code Search & Symbol Matching Latency]`);
   const searchQueries = [
@@ -315,7 +343,6 @@ async function runBenchmark() {
   const searchSummary: Array<{ query: string; matches: number; latencyMs: number }> = [];
 
   for (const q of searchQueries) {
-    // Warm-up
     for (const f of analyzedFilesBaseline) {
       f.symbols.filter((s) => s.name.toLowerCase().includes(q.toLowerCase()));
     }
@@ -343,11 +370,56 @@ async function runBenchmark() {
   console.log(`   - Query Aggregate Latency: P50 = ${searchStats.p50Ms} ms | Mean = ${searchStats.meanMs} ms | P95 = ${searchStats.p95Ms} ms\n`);
 
   // -------------------------------------------------------------------------
-  // 6. Memory & Heap Lifecycle Analysis
+  // 6. Synthetic Workload Scalability (Medium: 50 Modules, Large: 150 Modules)
+  // -------------------------------------------------------------------------
+  console.log(`📈 [Benchmark 6: Synthetic Workload Scalability Analysis]`);
+
+  // 6a. Medium Workload (50 modules, ~110 edges)
+  const mediumFiles = generateSyntheticRepository(50, 2.5);
+  const tMedG0 = performance.now();
+  const mediumGraph = buildDependencyGraph(mediumFiles);
+  const tMedG1 = performance.now();
+  const medGraphTime = tMedG1 - tMedG0;
+
+  const tMedB0 = performance.now();
+  const medImpact = analyzeChangeImpact(mediumGraph, 'src/module_000.ts');
+  const tMedB1 = performance.now();
+  const medImpactTime = tMedB1 - tMedB0;
+  assert.equal(medImpact.success, true);
+  if (medImpact.success) {
+    assert.equal(medImpact.report.totalImpactedFiles, 49, 'Root change in synthetic DAG must impact all 49 downstream modules');
+  }
+
+  console.log(`   - Medium Workload (50 files, ${mediumGraph.edges.length} edges):`);
+  console.log(`     ↳ Graph Construction: ${medGraphTime.toFixed(3)} ms`);
+  console.log(`     ↳ BFS Impact Traversal (49 dependents): ${medImpactTime.toFixed(3)} ms`);
+
+  // 6b. Large Scaled Workload (150 modules, ~360 edges)
+  const largeFiles = generateSyntheticRepository(150, 2.5);
+  const tLrgG0 = performance.now();
+  const largeGraph = buildDependencyGraph(largeFiles);
+  const tLrgG1 = performance.now();
+  const lrgGraphTime = tLrgG1 - tLrgG0;
+
+  const tLrgB0 = performance.now();
+  const lrgImpact = analyzeChangeImpact(largeGraph, 'src/module_000.ts');
+  const tLrgB1 = performance.now();
+  const lrgImpactTime = tLrgB1 - tLrgB0;
+  assert.equal(lrgImpact.success, true);
+  if (lrgImpact.success) {
+    assert.equal(lrgImpact.report.totalImpactedFiles, 149, 'Root change in synthetic DAG must impact all 149 downstream modules');
+  }
+
+  console.log(`   - Scaled Workload (150 files, ${largeGraph.edges.length} edges):`);
+  console.log(`     ↳ Graph Construction: ${lrgGraphTime.toFixed(3)} ms`);
+  console.log(`     ↳ BFS Impact Traversal (149 dependents): ${lrgImpactTime.toFixed(3)} ms\n`);
+
+  // -------------------------------------------------------------------------
+  // 7. Memory & Heap Lifecycle Analysis
   // -------------------------------------------------------------------------
   updatePeakMemory();
   const memFinal = process.memoryUsage();
-  console.log(`💾 [Benchmark 6: Memory & Process Lifecycle Footprint]`);
+  console.log(`💾 [Benchmark 7: Memory & Process Lifecycle Footprint]`);
   console.log(`   - Initial Heap:         ${(memInitial.heapUsed / (1024 * 1024)).toFixed(2)} MB`);
   console.log(`   - Observed Peak Heap:   ${(peakHeapUsedBytes / (1024 * 1024)).toFixed(2)} MB`);
   console.log(`   - Final Heap:           ${(memFinal.heapUsed / (1024 * 1024)).toFixed(2)} MB`);

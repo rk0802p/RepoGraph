@@ -192,7 +192,16 @@ describe('RepoGraph API Test Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: '../../../../../../Windows' }),
     });
-    assert.ok(res.status === 403 || res.status === 404);
+    assert.equal(res.status, 403);
+  });
+
+  it('POST /api/repositories/scan should return 404 for non-existent directory inside workspace', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'nonexistent-subproject-inside-workspace' }),
+    });
+    assert.equal(res.status, 404);
   });
 
   it('GET /api/nonexistent should return 404 error format', async () => {

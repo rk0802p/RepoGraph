@@ -48,7 +48,7 @@ All routes are mounted under `/api`:
 
 ## Testing
 
-The API includes 31 unit and integration test suites:
+The API includes 60 unit, integration, and security test cases across 7 suites:
 
 ```bash
 # Run all tests using Node.js native test runner

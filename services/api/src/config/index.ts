@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 
 dotenv.config();
 
+export type SupportedEnvironment = 'development' | 'production' | 'test';
+
 export interface AppLimits {
   maxFiles: number;
   maxDepth: number;
@@ -13,7 +15,7 @@ export interface AppLimits {
 
 export interface AppConfig {
   port: number;
-  nodeEnv: 'development' | 'production' | 'test';
+  nodeEnv: SupportedEnvironment;
   corsOrigin: string;
   databaseUrl: string;
   redisUrl: string;
@@ -27,9 +29,9 @@ export interface ConfigValidationResult {
   errors: string[];
 }
 
-const DEFAULT_DEV_DATABASE_URL =
+export const DEFAULT_DEV_DATABASE_URL =
   'postgresql://repograph:repograph_secret@localhost:5432/repograph_db';
-const DEFAULT_DEV_REDIS_URL = 'redis://localhost:6379';
+export const DEFAULT_DEV_REDIS_URL = 'redis://localhost:6379';
 
 function resolveMonorepoRoot(startDir: string): string {
   let curr = path.resolve(startDir);
@@ -48,137 +50,200 @@ function resolveMonorepoRoot(startDir: string): string {
   return path.resolve(startDir);
 }
 
-function parsePort(val: string | undefined): { port: number; error?: string } {
-  if (val === undefined || val.trim() === '') {
-    return { port: 3000 };
-  }
-  const parsed = Number(val);
-  if (!Number.isInteger(parsed) || parsed < 1024 || parsed > 65535) {
-    return {
-      port: 3000,
-      error: `Invalid PORT value "${val}". PORT must be an integer between 1024 and 65535.`,
-    };
-  }
-  return { port: parsed };
-}
-
-function parseLimit(
+function parseInteger(
   val: string | undefined,
   defaultVal: number,
-  min = 1,
-  max = 1_000_000,
-  paramName = 'limit'
-): { val: number; error?: string } {
+  min: number,
+  max: number,
+  paramName: string,
+  errors: string[]
+): number {
   if (val === undefined || val.trim() === '') {
-    return { val: defaultVal };
+    return defaultVal;
   }
-  const parsed = Number(val);
-  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
-    return {
-      val: defaultVal,
-      error: `Invalid ${paramName} value "${val}". Must be a number between ${min} and ${max}.`,
-    };
+  const trimmed = val.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    errors.push(
+      `Invalid ${paramName} value "${trimmed}". Must be a whole integer between ${min} and ${max}.`
+    );
+    return defaultVal;
   }
-  return { val: Math.floor(parsed) };
+  const parsed = Number(trimmed);
+  if (parsed < min || parsed > max) {
+    errors.push(
+      `Invalid ${paramName} value "${trimmed}". Must be between ${min} and ${max}.`
+    );
+    return defaultVal;
+  }
+  return parsed;
 }
 
-const monorepoRoot = resolveMonorepoRoot(process.cwd());
+/**
+ * Deterministically parses and validates configuration from raw environment variables.
+ * Does not rely on stale module-level captured variables.
+ */
+export function parseAndValidateConfig(
+  rawEnv: NodeJS.ProcessEnv = process.env
+): { config: AppConfig; result: ConfigValidationResult } {
+  const warnings: string[] = [];
+  const errors: string[] = [];
 
-const parsedPortResult = parsePort(process.env.PORT);
-const parsedMaxFiles = parseLimit(process.env.MAX_FILE_COUNT, 10_000, 10, 100_000, 'MAX_FILE_COUNT');
-const parsedMaxDepth = parseLimit(process.env.MAX_SCAN_DEPTH, 30, 1, 100, 'MAX_SCAN_DEPTH');
-const parsedMaxRepoMb = parseLimit(process.env.MAX_REPO_SIZE_MB, 250, 1, 10_000, 'MAX_REPO_SIZE_MB');
-const parsedTimeout = parseLimit(process.env.PARSER_WORKER_TIMEOUT_SEC, 300, 5, 3600, 'PARSER_WORKER_TIMEOUT_SEC');
+  // 1. Validate NODE_ENV
+  const rawNodeEnv = rawEnv.NODE_ENV !== undefined ? rawEnv.NODE_ENV.trim() : '';
+  let nodeEnv: SupportedEnvironment = 'development';
 
-export const config: AppConfig = {
-  port: parsedPortResult.port,
-  nodeEnv: (['development', 'production', 'test'].includes(process.env.NODE_ENV || '')
-    ? (process.env.NODE_ENV as 'development' | 'production' | 'test')
-    : 'development'),
-  corsOrigin: process.env.CORS_ORIGIN || '*',
-  databaseUrl: process.env.DATABASE_URL || DEFAULT_DEV_DATABASE_URL,
-  redisUrl: process.env.REDIS_URL || DEFAULT_DEV_REDIS_URL,
-  repositoryWorkspace: process.env.REPOSITORY_WORKSPACE
-    ? path.resolve(process.env.REPOSITORY_WORKSPACE)
-    : monorepoRoot,
-  limits: {
-    maxFiles: parsedMaxFiles.val,
-    maxDepth: parsedMaxDepth.val,
-    maxRepoSizeMb: parsedMaxRepoMb.val,
-    parserTimeoutSec: parsedTimeout.val,
-  },
-};
+  if (rawNodeEnv === '') {
+    nodeEnv = 'development';
+  } else if (rawNodeEnv === 'development' || rawNodeEnv === 'production' || rawNodeEnv === 'test') {
+    nodeEnv = rawNodeEnv;
+  } else {
+    errors.push(
+      `Invalid NODE_ENV "${rawNodeEnv}". Allowed environments are: development, production, test.`
+    );
+    // Retain invalid string for inspection in type-cast config without silently assuming dev
+    nodeEnv = 'development';
+  }
+
+  // 2. Validate PORT
+  const port = parseInteger(rawEnv.PORT, 3000, 1024, 65535, 'PORT', errors);
+
+  // 3. Validate Limits
+  const maxFiles = parseInteger(rawEnv.MAX_FILE_COUNT, 10_000, 10, 100_000, 'MAX_FILE_COUNT', errors);
+  const maxDepth = parseInteger(rawEnv.MAX_SCAN_DEPTH, 30, 1, 100, 'MAX_SCAN_DEPTH', errors);
+  const maxRepoSizeMb = parseInteger(rawEnv.MAX_REPO_SIZE_MB, 250, 1, 10_000, 'MAX_REPO_SIZE_MB', errors);
+  const parserTimeoutSec = parseInteger(rawEnv.PARSER_WORKER_TIMEOUT_SEC, 300, 5, 3600, 'PARSER_WORKER_TIMEOUT_SEC', errors);
+
+  // 4. Validate CORS Origin
+  const corsOrigin = rawEnv.CORS_ORIGIN || '*';
+  if (nodeEnv === 'production') {
+    if (corsOrigin === '*') {
+      errors.push('CORS_ORIGIN cannot be set to wildcard "*" in production. Must specify authorized origins.');
+    }
+  }
+
+  // 5. Validate Database URL
+  let databaseUrl = rawEnv.DATABASE_URL;
+  if (!databaseUrl || databaseUrl.trim() === '') {
+    if (nodeEnv === 'production') {
+      errors.push('DATABASE_URL must be explicitly configured in production.');
+      databaseUrl = '';
+    } else {
+      databaseUrl = DEFAULT_DEV_DATABASE_URL;
+      warnings.push('Using default local PostgreSQL credentials for development/testing.');
+    }
+  } else {
+    databaseUrl = databaseUrl.trim();
+    try {
+      const parsedUrl = new URL(databaseUrl);
+      if (!['postgresql:', 'postgres:'].includes(parsedUrl.protocol)) {
+        errors.push(`Invalid DATABASE_URL protocol "${parsedUrl.protocol}". Must be postgresql:// or postgres://.`);
+      }
+      if (nodeEnv === 'production') {
+        if (databaseUrl.includes('repograph_secret') || databaseUrl.includes('localhost:5432/repograph_db')) {
+          errors.push('DATABASE_URL in production cannot use known local development credentials.');
+        }
+      }
+    } catch {
+      errors.push('DATABASE_URL is not a valid URL.');
+    }
+  }
+
+  // 6. Validate Redis URL
+  let redisUrl = rawEnv.REDIS_URL;
+  if (!redisUrl || redisUrl.trim() === '') {
+    redisUrl = DEFAULT_DEV_REDIS_URL;
+    if (nodeEnv === 'production') {
+      warnings.push('REDIS_URL is not configured; caching and background queueing are disabled in direct-on-disk mode.');
+    }
+  } else {
+    redisUrl = redisUrl.trim();
+    try {
+      const parsedRedis = new URL(redisUrl);
+      if (!['redis:', 'rediss:'].includes(parsedRedis.protocol)) {
+        errors.push(`Invalid REDIS_URL protocol "${parsedRedis.protocol}". Must be redis:// or rediss://.`);
+      }
+    } catch {
+      errors.push('REDIS_URL is not a valid URL.');
+    }
+  }
+
+  // 7. Validate Workspace Root
+  const monorepoRoot = resolveMonorepoRoot(process.cwd());
+  const repositoryWorkspace = rawEnv.REPOSITORY_WORKSPACE
+    ? path.resolve(rawEnv.REPOSITORY_WORKSPACE)
+    : monorepoRoot;
+
+  if (rawEnv.REPOSITORY_WORKSPACE) {
+    const parsedWorkspace = path.resolve(rawEnv.REPOSITORY_WORKSPACE);
+    const parentDir = path.dirname(parsedWorkspace);
+    if (parentDir === parsedWorkspace) {
+      errors.push('REPOSITORY_WORKSPACE cannot be set to the filesystem root directory.');
+    }
+    if (!existsSync(parsedWorkspace)) {
+      warnings.push(`Configured REPOSITORY_WORKSPACE does not exist on disk: ${parsedWorkspace}`);
+    }
+  }
+
+  const parsedConfig: AppConfig = {
+    port,
+    nodeEnv,
+    corsOrigin,
+    databaseUrl,
+    redisUrl,
+    repositoryWorkspace,
+    limits: {
+      maxFiles,
+      maxDepth,
+      maxRepoSizeMb,
+      parserTimeoutSec,
+    },
+  };
+
+  return {
+    config: parsedConfig,
+    result: {
+      valid: errors.length === 0,
+      warnings,
+      errors,
+    },
+  };
+}
+
+// Active startup config
+const parsed = parseAndValidateConfig(process.env);
+export const config: AppConfig = parsed.config;
 
 /**
  * Validates configuration and raw environment inputs.
- * Enforces production secrets requirements and rejects invalid numeric strings.
  */
 export function validateConfig(
   cfg: AppConfig = config,
   rawEnv: NodeJS.ProcessEnv = process.env
 ): ConfigValidationResult {
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  // If custom cfg is provided, validate both rawEnv and cfg invariants
+  const { result } = parseAndValidateConfig(rawEnv);
+  const errors = [...result.errors];
+  const warnings = [...result.warnings];
 
-  // Check raw port input errors
-  if (rawEnv.PORT !== undefined && rawEnv.PORT.trim() !== '') {
-    const rawPort = Number(rawEnv.PORT);
-    if (!Number.isInteger(rawPort) || rawPort < 1024 || rawPort > 65535) {
-      errors.push(`Raw PORT environment variable "${rawEnv.PORT}" is invalid. Must be between 1024 and 65535.`);
-    }
-  }
-
-  // Check limit parse errors
-  if (parsedMaxFiles.error) errors.push(parsedMaxFiles.error);
-  if (parsedMaxDepth.error) errors.push(parsedMaxDepth.error);
-  if (parsedMaxRepoMb.error) errors.push(parsedMaxRepoMb.error);
-  if (parsedTimeout.error) errors.push(parsedTimeout.error);
-
-  // Validate port range on active config
+  // Also check direct cfg parameters if explicitly overridden
   if (cfg.port < 1024 || cfg.port > 65535) {
-    errors.push(`Configured port ${cfg.port} is outside valid unprivileged port range (1024-65535).`);
-  }
-
-  // Validate URLs syntax
-  try {
-    const dbUrl = new URL(cfg.databaseUrl);
-    if (!['postgresql:', 'postgres:'].includes(dbUrl.protocol)) {
-      errors.push(`Invalid DATABASE_URL protocol "${dbUrl.protocol}". Must be postgresql:// or postgres://.`);
+    if (!errors.some((e) => e.includes('PORT'))) {
+      errors.push(`Configured port ${cfg.port} is outside valid unprivileged port range (1024-65535).`);
     }
-  } catch {
-    errors.push(`DATABASE_URL is not a valid URL: "${cfg.databaseUrl}".`);
   }
 
-  try {
-    const redisUrl = new URL(cfg.redisUrl);
-    if (!['redis:', 'rediss:'].includes(redisUrl.protocol)) {
-      errors.push(`Invalid REDIS_URL protocol "${redisUrl.protocol}". Must be redis:// or rediss://.`);
-    }
-  } catch {
-    errors.push(`REDIS_URL is not a valid URL: "${cfg.redisUrl}".`);
-  }
-
-  // Production environment constraints
   if (cfg.nodeEnv === 'production') {
-    if (cfg.corsOrigin === '*') {
-      errors.push('CORS_ORIGIN cannot be set to wildcard "*" in production. Must specify authorized origins.');
+    if (cfg.corsOrigin === '*' && !errors.some((e) => e.includes('CORS_ORIGIN'))) {
+      errors.push('CORS_ORIGIN cannot be set to wildcard "*" in production.');
     }
-
-    if (!rawEnv.DATABASE_URL || cfg.databaseUrl === DEFAULT_DEV_DATABASE_URL) {
-      errors.push('DATABASE_URL must be explicitly configured in production (cannot use local development default).');
+    if (
+      (!cfg.databaseUrl ||
+        cfg.databaseUrl.includes('repograph_secret') ||
+        cfg.databaseUrl === DEFAULT_DEV_DATABASE_URL) &&
+      !errors.some((e) => e.includes('DATABASE_URL'))
+    ) {
+      errors.push('DATABASE_URL must be explicitly configured in production (cannot use local development credentials).');
     }
-
-    if (!rawEnv.REDIS_URL || cfg.redisUrl === DEFAULT_DEV_REDIS_URL) {
-      warnings.push('REDIS_URL is using default localhost in production; verify external Redis connectivity.');
-    }
-  } else {
-    if (cfg.databaseUrl === DEFAULT_DEV_DATABASE_URL) {
-      warnings.push('Using default local PostgreSQL credentials for development/testing.');
-    }
-  }
-
-  if (!existsSync(cfg.repositoryWorkspace)) {
-    warnings.push(`Repository workspace directory does not exist on disk: ${cfg.repositoryWorkspace}`);
   }
 
   return {

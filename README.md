@@ -173,7 +173,7 @@ All routes are mounted under `/api`:
 
 ## 6. Testing & Quality Verification
 
-Run all 45 unit, integration, and parser test suites across the monorepo:
+Run all 60 unit, integration, security, and parser test suites across the monorepo:
 
 ```bash
 # Run full test suite

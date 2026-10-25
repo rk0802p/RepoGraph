@@ -30,9 +30,13 @@ export function findMonorepoRoot(startDir: string): string {
 
 /**
  * Checks if candidate path is strictly inside or equal to the parent root directory.
+ * Normalizes Windows case-insensitivity and path separators.
  */
 export function isPathInside(parent: string, child: string): boolean {
-  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  const isWin = process.platform === 'win32';
+  const parentNorm = isWin ? path.resolve(parent).toLowerCase() : path.resolve(parent);
+  const childNorm = isWin ? path.resolve(child).toLowerCase() : path.resolve(child);
+  const rel = path.relative(parentNorm, childNorm);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
@@ -53,7 +57,7 @@ export async function resolveRepository(
     };
   }
 
-  // Reject null bytes
+  // Reject null bytes or control characters
   if (repositoryPath.includes('\0')) {
     return {
       error: 'Invalid repository path.',
@@ -100,6 +104,33 @@ export async function resolveRepository(
       };
     }
 
+    // Reject UNC and Windows device paths unless contained
+    if (rawPath.startsWith('\\\\') || rawPath.startsWith('//')) {
+      return {
+        error: 'Access denied: repository directory is outside the allowed workspace boundary.',
+        status: 403,
+      };
+    }
+
+    // Pre-check for paths attempting to escape via absolute path or relative '..' traversal
+    if (path.isAbsolute(rawPath)) {
+      const isAbsoluteAllowed = allowedRoots.some((root) => isPathInside(root, rawPath));
+      if (!isAbsoluteAllowed) {
+        return {
+          error: 'Access denied: repository directory is outside the allowed workspace boundary.',
+          status: 403,
+        };
+      }
+    } else if (rawPath.split(/[/\\]/).some((segment) => segment === '..')) {
+      const wouldEscape = !allowedRoots.some((root) => isPathInside(root, path.resolve(root, rawPath)));
+      if (wouldEscape) {
+        return {
+          error: 'Access denied: repository directory is outside the allowed workspace boundary.',
+          status: 403,
+        };
+      }
+    }
+
     // Only search within explicitly allowed roots
     const candidates = [
       path.resolve(allowedRoots[0], rawPath),
@@ -130,7 +161,7 @@ export async function resolveRepository(
       };
     }
 
-    // Strict containment verification: targetDir MUST be contained inside one of allowedRoots
+    // Strict containment verification after resolving symlinks (prevents symlink escapes)
     const isContained = allowedRoots.some((allowed) => isPathInside(allowed, targetDir!));
     if (!isContained) {
       return {
