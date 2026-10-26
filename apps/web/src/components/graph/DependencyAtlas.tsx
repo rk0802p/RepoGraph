@@ -110,12 +110,16 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
       }),
       ...graphData.edges.map((edge, idx) => ({
         data: {
-          id: `edge-${idx}`,
+          id: edge.id || `edge-${idx}`,
           source: edge.source,
           target: edge.target,
           importSource: edge.importSource,
           startLine: edge.startLine,
+          relationType: edge.relationType || "IMPORTS",
+          resolutionMethod: edge.resolutionMethod || "ast_relative",
+          confidence: edge.confidence || "observed",
         },
+        classes: edge.resolutionMethod === "monorepo_workspace" ? "edge-cross-pkg" : "",
       })),
     ];
 
@@ -223,6 +227,16 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
             "arrow-scale": 0.85,
             opacity: 0.75,
             "line-cap": "round",
+          },
+        },
+        {
+          selector: "edge.edge-cross-pkg",
+          style: {
+            "line-style": "dashed",
+            "line-dash-pattern": [6, 3],
+            width: 2,
+            "line-color": "#175B45",
+            "target-arrow-color": "#175B45",
           },
         },
         {

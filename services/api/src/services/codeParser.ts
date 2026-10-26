@@ -1,4 +1,3 @@
-
 import Parser from "tree-sitter";
 import JavaScript from "tree-sitter-javascript";
 import TypeScript from "@sengac/tree-sitter-typescript";
@@ -13,11 +12,14 @@ export type CodeSymbol = {
 export type CodeImport = {
   source: string;
   startLine: number;
+  isReExport?: boolean;
+  isDynamic?: boolean;
 };
 
 export type ParsedCode = {
   symbols: CodeSymbol[];
   imports: CodeImport[];
+  parseError?: string;
 };
 
 const javascriptParser = new Parser();
@@ -147,9 +149,12 @@ function extractSymbols(
       declaration.type === "generator_function_declaration" ||
       declaration.type === "class_declaration" ||
       declaration.type === "interface_declaration" ||
-      declaration.type === "type_alias_declaration"
+      declaration.type === "type_alias_declaration" ||
+      declaration.type === "enum_declaration"
     ) {
-      const nameNode = declaration.childForFieldName("name");
+      const nameNode =
+        declaration.childForFieldName("name") ??
+        declaration.namedChildren.find((c) => c.type === "identifier");
 
       if (!nameNode) continue;
 
@@ -158,7 +163,8 @@ function extractSymbols(
           ? "class"
           : declaration.type === "interface_declaration"
             ? "interface"
-            : declaration.type === "type_alias_declaration"
+            : declaration.type === "type_alias_declaration" ||
+              declaration.type === "enum_declaration"
               ? "type"
               : "function";
 
@@ -195,7 +201,7 @@ function extractImports(root: Parser.SyntaxNode): CodeImport[] {
   const imports: CodeImport[] = [];
 
   function visit(node: Parser.SyntaxNode): void {
-    if (node.type === "import_statement") {
+    if (node.type === "import_statement" || node.type === "export_statement") {
       const sourceNode = node.namedChildren.find(
         (child) =>
           child.type === "string" ||
@@ -206,7 +212,25 @@ function extractImports(root: Parser.SyntaxNode): CodeImport[] {
         imports.push({
           source: sourceNode.text.replace(/^['"]|['"]$/g, ""),
           startLine: node.startPosition.row + 1,
+          isReExport: node.type === "export_statement",
         });
+      }
+    } else if (node.type === "call_expression") {
+      const fn = node.childForFieldName("function") ?? node.namedChildren[0];
+      const args = node.childForFieldName("arguments");
+      if (fn && args) {
+        const isDynamicImport = fn.type === "import";
+        const isRequire = fn.type === "identifier" && fn.text === "require";
+        if (isDynamicImport || isRequire) {
+          const firstArg = args.namedChildren[0];
+          if (firstArg && (firstArg.type === "string" || firstArg.type === "string_fragment")) {
+            imports.push({
+              source: firstArg.text.replace(/^['"]|['"]$/g, ""),
+              startLine: node.startPosition.row + 1,
+              isDynamic: true,
+            });
+          }
+        }
       }
     }
 
@@ -223,10 +247,18 @@ export function parseCode(
   source: string,
   extension: string
 ): ParsedCode {
-  const root = parseNodeTree(source, extension);
+  try {
+    const root = parseNodeTree(source, extension);
 
-  return {
-    symbols: extractSymbols(root),
-    imports: extractImports(root),
-  };
+    return {
+      symbols: extractSymbols(root),
+      imports: extractImports(root),
+    };
+  } catch (err: unknown) {
+    return {
+      symbols: [],
+      imports: [],
+      parseError: err instanceof Error ? err.message : "Parse error",
+    };
+  }
 }

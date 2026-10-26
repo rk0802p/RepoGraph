@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { realpath, stat } from 'node:fs/promises';
+import { realpath, stat, readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import type { WorkspacePackageInfo } from '@repograph/shared-types';
 import { config } from '../config/index.js';
 
 export type RepositoryResolution =
@@ -11,6 +12,10 @@ export type RepositoryResolution =
   | {
       rootDirectory: string;
       repository: string;
+      commitSha?: string;
+      branch?: string;
+      isMonorepo?: boolean;
+      workspacePackages?: Map<string, WorkspacePackageInfo>;
     };
 
 export function findMonorepoRoot(startDir: string): string {
@@ -38,6 +43,139 @@ export function isPathInside(parent: string, child: string): boolean {
   const childNorm = isWin ? path.resolve(child).toLowerCase() : path.resolve(child);
   const rel = path.relative(parentNorm, childNorm);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * Discovers internal monorepo packages and their source entry points.
+ */
+export async function discoverWorkspacePackages(
+  rootDirectory: string
+): Promise<Map<string, WorkspacePackageInfo>> {
+  const packageMap = new Map<string, WorkspacePackageInfo>();
+  const rootPkgPath = path.join(rootDirectory, 'package.json');
+  if (!existsSync(rootPkgPath)) {
+    return packageMap;
+  }
+
+  try {
+    const rootPkgRaw = await readFile(rootPkgPath, 'utf8');
+    const rootPkg = JSON.parse(rootPkgRaw);
+    const workspacePatterns: string[] = Array.isArray(rootPkg.workspaces)
+      ? rootPkg.workspaces
+      : Array.isArray(rootPkg.workspaces?.packages)
+        ? rootPkg.workspaces.packages
+        : ['packages/*', 'services/*', 'apps/*'];
+
+    for (const pattern of workspacePatterns) {
+      const baseDir = pattern.replace(/\/\*.*$/, '');
+      const fullBaseDir = path.join(rootDirectory, baseDir);
+      if (!existsSync(fullBaseDir)) continue;
+
+      try {
+        const subdirs = await readdir(fullBaseDir, { withFileTypes: true });
+        for (const sub of subdirs) {
+          if (!sub.isDirectory()) continue;
+          const pkgJsonPath = path.join(fullBaseDir, sub.name, 'package.json');
+          if (!existsSync(pkgJsonPath)) continue;
+
+          try {
+            const pkgRaw = await readFile(pkgJsonPath, 'utf8');
+            const pkg = JSON.parse(pkgRaw);
+            if (!pkg.name) continue;
+
+            const pkgRelDir = path.posix.normalize(
+              path.relative(rootDirectory, path.join(fullBaseDir, sub.name)).replace(/\\/g, '/')
+            );
+
+            const candidateEntries = [
+              path.posix.join(pkgRelDir, 'src', 'index.ts'),
+              path.posix.join(pkgRelDir, 'src', 'index.tsx'),
+              path.posix.join(pkgRelDir, 'src', 'index.js'),
+              path.posix.join(pkgRelDir, 'src', 'main.tsx'),
+              path.posix.join(pkgRelDir, 'src', 'main.ts'),
+              path.posix.join(pkgRelDir, 'index.ts'),
+              path.posix.join(pkgRelDir, 'index.js'),
+            ];
+
+            if (pkg.main && typeof pkg.main === 'string') {
+              const srcMain = pkg.main
+                .replace(/^(\.\/)?dist\//, 'src/')
+                .replace(/^(\.\/)?lib\//, 'src/')
+                .replace(/\.js$/, '.ts');
+              candidateEntries.unshift(path.posix.join(pkgRelDir, srcMain));
+            }
+
+            let resolvedEntry = '';
+            for (const cand of candidateEntries) {
+              if (existsSync(path.join(rootDirectory, cand))) {
+                resolvedEntry = cand;
+                break;
+              }
+            }
+
+            packageMap.set(pkg.name, {
+              name: pkg.name,
+              version: pkg.version,
+              directory: pkgRelDir,
+              entryPoint: resolvedEntry || path.posix.join(pkgRelDir, 'src', 'index.ts'),
+              isPrivate: Boolean(pkg.private),
+            });
+          } catch {
+            // Ignore malformed sub-package.json
+          }
+        }
+      } catch {
+        // Ignore unreadable directory
+      }
+    }
+  } catch {
+    // Ignore malformed root package.json
+  }
+
+  return packageMap;
+}
+
+/**
+ * Extracts revision fingerprint (commit SHA, branch) if available.
+ */
+export async function getRepositoryFingerprint(rootDirectory: string): Promise<{
+  commitSha: string;
+  branch: string;
+}> {
+  let commitSha = 'HEAD';
+  let branch = 'main';
+
+  const gitHeadPath = path.join(rootDirectory, '.git', 'HEAD');
+  if (existsSync(gitHeadPath)) {
+    try {
+      const headContent = (await readFile(gitHeadPath, 'utf8')).trim();
+      if (headContent.startsWith('ref: ')) {
+        const refRelative = headContent.slice(5).trim();
+        branch = refRelative.replace(/^refs\/heads\//, '');
+        const refPath = path.join(rootDirectory, '.git', refRelative);
+        if (existsSync(refPath)) {
+          commitSha = (await readFile(refPath, 'utf8')).trim().slice(0, 7);
+        } else {
+          const packedRefsPath = path.join(rootDirectory, '.git', 'packed-refs');
+          if (existsSync(packedRefsPath)) {
+            const packed = await readFile(packedRefsPath, 'utf8');
+            for (const line of packed.split('\n')) {
+              if (line.endsWith(refRelative)) {
+                commitSha = line.split(' ')[0].trim().slice(0, 7);
+                break;
+              }
+            }
+          }
+        }
+      } else if (headContent.length >= 7) {
+        commitSha = headContent.slice(0, 7);
+      }
+    } catch {
+      // Fallback
+    }
+  }
+
+  return { commitSha, branch };
 }
 
 /**
@@ -98,9 +236,16 @@ export async function resolveRepository(
       rawPath.toLowerCase() === monorepoBase;
 
     if (isCurrentRepoAlias) {
+      const rootDir = allowedRoots[0];
+      const fingerprint = await getRepositoryFingerprint(rootDir);
+      const workspacePackages = await discoverWorkspacePackages(rootDir);
       return {
-        rootDirectory: allowedRoots[0],
-        repository: path.basename(allowedRoots[0]),
+        rootDirectory: rootDir,
+        repository: path.basename(rootDir),
+        commitSha: fingerprint.commitSha,
+        branch: fingerprint.branch,
+        isMonorepo: workspacePackages.size > 0,
+        workspacePackages,
       };
     }
 
@@ -170,9 +315,16 @@ export async function resolveRepository(
       };
     }
 
+    const fingerprint = await getRepositoryFingerprint(targetDir);
+    const workspacePackages = await discoverWorkspacePackages(targetDir);
+
     return {
       rootDirectory: targetDir,
       repository: repoName,
+      commitSha: fingerprint.commitSha,
+      branch: fingerprint.branch,
+      isMonorepo: workspacePackages.size > 0,
+      workspacePackages,
     };
   } catch {
     return {

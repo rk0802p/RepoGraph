@@ -1,4 +1,3 @@
-
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 export type ApiHealth = {
@@ -17,10 +16,18 @@ export type CodeSymbol = {
 export type CodeImport = {
   source: string;
   startLine: number;
+  isReExport?: boolean;
+  isDynamic?: boolean;
 };
 
 export type ResolvedImport = CodeImport & {
   resolvedPath: string | null;
+  resolutionMethod?:
+    | "ast_relative"
+    | "monorepo_workspace"
+    | "static_asset"
+    | "external_package"
+    | "unresolved";
 };
 
 export type AnalyzedFile = {
@@ -33,18 +40,33 @@ export type AnalyzedFile = {
   dependencies: string[];
 };
 
+export type EdgeEvidence = {
+  specifier: string;
+  line: number;
+};
+
 export type DependencyNode = {
   id: string;
   path: string;
   language: string;
   extension: string;
+  package?: string;
 };
 
 export type DependencyEdge = {
+  id?: string;
   source: string;
   target: string;
   importSource: string;
   startLine: number;
+  relationType?: "IMPORTS" | "EXPORTS_FROM" | "DYNAMIC_IMPORT";
+  resolutionMethod?:
+    | "ast_relative"
+    | "monorepo_workspace"
+    | "tsconfig_alias"
+    | "heuristic";
+  confidence?: "observed" | "likely" | "uncertain";
+  evidence?: EdgeEvidence;
 };
 
 export type DependencyGraph = {
@@ -52,11 +74,22 @@ export type DependencyGraph = {
   edges: DependencyEdge[];
 };
 
+export type AnalysisSummary = {
+  totalFiles: number;
+  totalSymbols: number;
+  totalEdges: number;
+  crossPackageEdges: number;
+  parseErrors: number;
+  languages: Record<string, number>;
+};
+
 export type RepositoryAnalysis = {
+  scanId?: string;
   repository: string;
   totalFiles: number;
   files: AnalyzedFile[];
   graph: DependencyGraph;
+  summary?: AnalysisSummary;
 };
 
 export type ImpactedFile = {

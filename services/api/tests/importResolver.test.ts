@@ -1,10 +1,10 @@
-
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { resolveImports } from "../src/services/importResolver.js";
 import type { SourceFile } from "../src/services/repositoryScanner.js";
 import type { CodeImport } from "../src/services/codeParser.js";
+import type { WorkspacePackageInfo } from "@repograph/shared-types";
 
 const importingFile: SourceFile = {
   path: "src/app.ts",
@@ -69,6 +69,10 @@ test("does not resolve external packages as local files", () => {
     resolveOne("express")?.resolvedPath,
     null
   );
+  assert.equal(
+    resolveOne("express")?.resolutionMethod,
+    "external_package"
+  );
 });
 
 test("returns null for missing relative imports", () => {
@@ -93,7 +97,6 @@ test("normalizes Windows-style repository paths", () => {
   assert.equal(result[0]?.resolvedPath, "src/auth.ts");
 });
 
-
 test("resolves .js import specifiers to TypeScript source files", () => {
   const result = resolveImports(
     importingFile,
@@ -112,4 +115,57 @@ test("resolves .js import specifiers to TypeScript source files", () => {
     result[0]?.resolvedPath,
     "src/repositoryAnalyzer.ts"
   );
+});
+
+test("resolves monorepo workspace package imports", () => {
+  const workspacePackages = new Map<string, WorkspacePackageInfo>([
+    [
+      "@repograph/shared-types",
+      {
+        name: "@repograph/shared-types",
+        directory: "packages/shared-types",
+        entryPoint: "packages/shared-types/src/index.ts",
+      },
+    ],
+  ]);
+
+  const repoFilesWithWorkspace: SourceFile[] = [
+    {
+      path: "services/api/src/routes/repositories.ts",
+      language: "TypeScript",
+      extension: ".ts",
+    },
+    {
+      path: "packages/shared-types/src/index.ts",
+      language: "TypeScript",
+      extension: ".ts",
+    },
+  ];
+
+  const result = resolveImports(
+    repoFilesWithWorkspace[0],
+    [{ source: "@repograph/shared-types", startLine: 2 }],
+    repoFilesWithWorkspace,
+    workspacePackages
+  );
+
+  assert.equal(
+    result[0]?.resolvedPath,
+    "packages/shared-types/src/index.ts"
+  );
+  assert.equal(
+    result[0]?.resolutionMethod,
+    "monorepo_workspace"
+  );
+});
+
+test("identifies static asset imports explicitly", () => {
+  const result = resolveImports(
+    importingFile,
+    [{ source: "./styles.css", startLine: 1 }],
+    repositoryFiles
+  );
+
+  assert.equal(result[0]?.resolvedPath, null);
+  assert.equal(result[0]?.resolutionMethod, "static_asset");
 });

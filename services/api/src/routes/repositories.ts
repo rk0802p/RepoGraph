@@ -3,8 +3,8 @@ import type { Repository, RepositoryRevision } from '@repograph/shared-types';
 import { resolveRepository } from '../services/workspaceResolver.js';
 import { scanRepository } from '../services/repositoryScanner.js';
 import { analyzeRepository } from '../services/repositoryAnalyzer.js';
-import { buildDependencyGraph } from '../services/dependencyGraph.js';
 import { analyzeChangeImpact } from '../services/impactAnalyzer.js';
+import { snapshotStore } from '../services/snapshotStore.js';
 
 import { isPathInside } from '../services/workspaceResolver.js';
 import { readFile, stat, realpath } from 'node:fs/promises';
@@ -159,15 +159,15 @@ repositoriesRouter.post('/analyze', async (req: Request, res: Response) => {
 
     const analysis = await analyzeRepository(
       resolved.rootDirectory,
-      resolved.repository
+      resolved.repository,
+      {
+        workspacePackages: 'workspacePackages' in resolved ? resolved.workspacePackages : undefined,
+        commitSha: 'commitSha' in resolved ? resolved.commitSha : undefined,
+        branch: 'branch' in resolved ? resolved.branch : undefined,
+      }
     );
 
-    const graph = buildDependencyGraph(analysis.files);
-
-    res.status(200).json({
-      ...analysis,
-      graph,
-    });
+    res.status(200).json(analysis);
   } catch (error) {
     handleRepositoryError(error, res, 'Repository analysis');
   }
@@ -199,12 +199,15 @@ repositoriesRouter.post('/impact', async (req: Request, res: Response) => {
 
     const analysis = await analyzeRepository(
       resolved.rootDirectory,
-      resolved.repository
+      resolved.repository,
+      {
+        workspacePackages: 'workspacePackages' in resolved ? resolved.workspacePackages : undefined,
+        commitSha: 'commitSha' in resolved ? resolved.commitSha : undefined,
+        branch: 'branch' in resolved ? resolved.branch : undefined,
+      }
     );
 
-    const graph = buildDependencyGraph(analysis.files);
-
-    const result = analyzeChangeImpact(graph, changedFile);
+    const result = analyzeChangeImpact(analysis.graph, changedFile);
 
     if (!result.success) {
       res.status(404).json({
@@ -291,16 +294,48 @@ repositoriesRouter.post('/:id/index', async (req: Request, res: Response) => {
     return;
   }
 
+  const requestedSha = req.body?.commitSha || 'latest';
+  const requestedBranch = req.body?.branch || 'main';
+
+  let totalFiles = 0;
+  let totalSymbols = 0;
+  let totalEdges = 0;
+  let scanId: string | undefined;
+
+  try {
+    const targetPath = repo ? repo.name : repoId;
+    const resolved = await resolveRepository(targetPath);
+    if (!('error' in resolved)) {
+      const analysis = await analyzeRepository(
+        resolved.rootDirectory,
+        resolved.repository,
+        {
+          repositoryId: repoId,
+          workspacePackages: 'workspacePackages' in resolved ? resolved.workspacePackages : undefined,
+          commitSha: requestedSha,
+          branch: requestedBranch,
+        }
+      );
+      totalFiles = analysis.totalFiles;
+      totalSymbols = analysis.summary.totalSymbols;
+      totalEdges = analysis.summary.totalEdges;
+      scanId = analysis.scanId;
+    }
+  } catch {
+    // Fallback if full analysis cannot complete
+  }
+
   const newRevision: RepositoryRevision = {
     id: `rev-${Date.now()}`,
     repositoryId: repoId,
-    commitSha: req.body.commitSha || 'latest',
-    branch: req.body.branch || 'main',
+    commitSha: requestedSha,
+    branch: requestedBranch,
     status: 'ready',
     progressPercent: 100,
-    totalFiles: 0,
-    totalSymbols: 0,
-    totalEdges: 0,
+    indexedAt: new Date().toISOString(),
+    totalFiles,
+    totalSymbols,
+    totalEdges,
   };
 
   const existing = registeredRevisions.get(repoId) || [];
@@ -310,7 +345,30 @@ repositoriesRouter.post('/:id/index', async (req: Request, res: Response) => {
     message: 'Indexing completed successfully',
     jobId: `job-${Date.now()}`,
     revision: newRevision,
+    ...(scanId ? { scanId } : {}),
   });
+});
+
+// GET /api/repositories/:id/snapshots
+repositoriesRouter.get('/:id/snapshots', (req: Request, res: Response) => {
+  const repoId = req.params.id as string;
+  const list = snapshotStore.list(repoId);
+  res.status(200).json({
+    repositoryId: repoId,
+    snapshots: list,
+    total: list.length,
+  });
+});
+
+// GET /api/repositories/:id/snapshots/:scanId
+repositoriesRouter.get('/:id/snapshots/:scanId', (req: Request, res: Response) => {
+  const { scanId } = req.params;
+  const record = snapshotStore.getById(scanId as string);
+  if (!record) {
+    res.status(404).json({ error: `Snapshot "${scanId}" not found.` });
+    return;
+  }
+  res.status(200).json(record);
 });
 
 // GET /api/repositories/:id/file?path=... (Safe Source File Viewer)

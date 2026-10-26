@@ -129,6 +129,8 @@ export type ResolutionMethod =
   | 'compiler_metadata'
   | 'import_table'
   | 'framework_convention'
+  | 'monorepo_workspace'
+  | 'tsconfig_alias'
   | 'heuristic'
   | 'llm_inferred';
 
@@ -260,4 +262,42 @@ export interface AssistantQueryResponse {
   citations: AssistantCitation[];
   confidence: ConfidenceCategory;
   caveats?: string[];
+}
+
+// ==========================================
+// 6. SCAN SNAPSHOTS & REPOSITORY INTELLIGENCE
+// ==========================================
+
+export interface WorkspacePackageInfo {
+  name: string;
+  version?: string;
+  directory: string;
+  entryPoint: string;
+  isPrivate?: boolean;
+}
+
+export interface EdgeEvidence {
+  specifier: string;
+  line: number;
+  column?: number;
+}
+
+export interface ScanSnapshotSummary {
+  totalFiles: number;
+  totalSymbols: number;
+  totalEdges: number;
+  crossPackageEdges: number;
+  parseErrors: number;
+  languages: Record<string, number>;
+}
+
+export interface ScanSnapshot {
+  scanId: string;
+  repositoryId: string;
+  repositoryName: string;
+  rootDirectory: string;
+  indexedAt: string;
+  workingTreeFingerprint: string;
+  summary: ScanSnapshotSummary;
+  limitations: string[];
 }

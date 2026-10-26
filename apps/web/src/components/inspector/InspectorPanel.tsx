@@ -133,6 +133,14 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     : "0.000"}
                 </span>
               </div>
+              {analysis.summary && analysis.summary.crossPackageEdges > 0 && (
+                <div className="overview-stat-card" style={{ gridColumn: "span 2" }}>
+                  <span className="stat-card-label">MONOREPO PACKAGE LINKS</span>
+                  <span className="stat-card-value font-mono" style={{ color: "var(--atlas-forest, #175B45)" }}>
+                    {analysis.summary.crossPackageEdges} observed
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Most Connected Hubs */}
@@ -394,11 +402,37 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               <ul className="deps-list">
                 {selectedFile.dependencies.map((depPath) => {
                   const targetFile = analysis?.files.find((f) => f.path === depPath);
+                  const matchingResolved = selectedFile.resolvedImports.find((ri) => ri.resolvedPath === depPath);
+                  const isCrossPackage = matchingResolved?.resolutionMethod === "monorepo_workspace";
+
                   return (
                     <li key={depPath} className="dep-item">
                       <div className="dep-info">
-                        <span className="dep-name font-mono">{getFileName(depPath)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className="dep-name font-mono">{getFileName(depPath)}</span>
+                          {isCrossPackage && (
+                            <span
+                              className="dep-badge-cross"
+                              style={{
+                                fontSize: "10px",
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                backgroundColor: "#EBF3EE",
+                                color: "#175B45",
+                                border: "1px solid #C4D9CC",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Workspace Package
+                            </span>
+                          )}
+                        </div>
                         <span className="dep-path font-mono">{depPath}</span>
+                        {matchingResolved && (
+                          <span className="dep-evidence font-mono" style={{ fontSize: "11px", color: "var(--atlas-muted, #64746B)" }}>
+                            Line {matchingResolved.startLine}: import from &quot;{matchingResolved.source}&quot;
+                          </span>
+                        )}
                       </div>
                       {targetFile && (
                         <button
