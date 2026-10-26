@@ -7,7 +7,7 @@ import { buildDependencyGraph } from '../services/dependencyGraph.js';
 import { analyzeChangeImpact } from '../services/impactAnalyzer.js';
 
 import { isPathInside } from '../services/workspaceResolver.js';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const repositoriesRouter = Router();
@@ -344,10 +344,17 @@ repositoriesRouter.get('/:id/file', async (req: Request, res: Response) => {
     }
 
     let fileStats;
+    let realCandidatePath: string;
     try {
-      fileStats = await stat(candidatePath);
+      realCandidatePath = await realpath(candidatePath);
+      fileStats = await stat(realCandidatePath);
     } catch {
       res.status(404).json({ error: `File "${cleanPath}" was not found.` });
+      return;
+    }
+
+    if (!isPathInside(resolved.rootDirectory, realCandidatePath)) {
+      res.status(403).json({ error: 'Access denied: path escapes repository boundary via symlink.' });
       return;
     }
 
@@ -361,7 +368,7 @@ repositoriesRouter.get('/:id/file', async (req: Request, res: Response) => {
       return;
     }
 
-    const content = await readFile(candidatePath, 'utf8');
+    const content = await readFile(realCandidatePath, 'utf8');
     const lines = content.split(/\r?\n/).length;
 
     res.status(200).json({

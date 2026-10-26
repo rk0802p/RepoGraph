@@ -10,6 +10,10 @@ interface AnalysisDrawerProps {
 
 type DrawerTab = "overview" | "impact" | "scan-log";
 
+function isStaticAssetImport(source: string): boolean {
+  return /\.(css|scss|sass|less|svg|png|jpg|jpeg|gif|ico|webp|woff|woff2|ttf|eot|wasm)$/i.test(source);
+}
+
 export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
   analysis,
   impactReport,
@@ -105,22 +109,34 @@ export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
       .slice(0, 6);
   }, [analysis]);
 
-  // Unresolved imports across repository
-  const unresolvedImports = useMemo(() => {
-    if (!analysis) return [];
-    const list: Array<{ sourceFile: string; importTarget: string; line: number }> = [];
+  // Categorize unresolved imports: broken source modules vs static non-source assets
+  const { brokenCodeImports, staticAssetImports } = useMemo(() => {
+    if (!analysis) return { brokenCodeImports: [], staticAssetImports: [] };
+    const brokenCode: Array<{ sourceFile: string; importTarget: string; line: number }> = [];
+    const staticAssets: Array<{ sourceFile: string; importTarget: string; line: number; assetType: string }> = [];
+
     for (const file of analysis.files) {
       for (const imp of file.resolvedImports) {
         if (!imp.resolvedPath && imp.source.startsWith(".")) {
-          list.push({
-            sourceFile: file.path,
-            importTarget: imp.source,
-            line: imp.startLine,
-          });
+          if (isStaticAssetImport(imp.source)) {
+            const ext = imp.source.split(".").pop()?.toUpperCase() ?? "ASSET";
+            staticAssets.push({
+              sourceFile: file.path,
+              importTarget: imp.source,
+              line: imp.startLine,
+              assetType: ext === "CSS" ? "Stylesheet" : ext,
+            });
+          } else {
+            brokenCode.push({
+              sourceFile: file.path,
+              importTarget: imp.source,
+              line: imp.startLine,
+            });
+          }
         }
       }
     }
-    return list;
+    return { brokenCodeImports: brokenCode, staticAssetImports: staticAssets };
   }, [analysis]);
 
   const getFileName = (path: string) => path.split("/").pop() ?? path;
@@ -199,7 +215,7 @@ export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
               setIsOpen(true);
             }}
           >
-            Scan & Health {unresolvedImports.length > 0 ? `(!${unresolvedImports.length})` : ""}
+            Scan & Health {brokenCodeImports.length > 0 ? `(!${brokenCodeImports.length})` : ""}
           </button>
         </div>
 
@@ -369,25 +385,27 @@ export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
                   <span className="health-val font-mono">{analysis.repository}</span>
                 </div>
                 <div className="health-card">
-                  <span className="health-lbl">FILES SCANNED</span>
-                  <span className="health-val font-mono">{analysis.totalFiles} source files</span>
+                  <span className="health-lbl">SOURCE CODE RESOLUTION</span>
+                  <span className={`health-val font-mono ${brokenCodeImports.length > 0 ? "text-warning" : "text-success"}`}>
+                    {brokenCodeImports.length === 0 ? "100% Valid" : `${brokenCodeImports.length} broken`}
+                  </span>
                 </div>
                 <div className="health-card">
-                  <span className="health-lbl">UNRESOLVED RELATIVE IMPORTS</span>
-                  <span className={`health-val font-mono ${unresolvedImports.length > 0 ? "text-warning" : "text-success"}`}>
-                    {unresolvedImports.length} detected
+                  <span className="health-lbl">STATIC ASSETS (NON-SOURCE)</span>
+                  <span className="health-val font-mono">
+                    {staticAssetImports.length} excluded
                   </span>
                 </div>
               </div>
 
-              {unresolvedImports.length > 0 ? (
+              {brokenCodeImports.length > 0 ? (
                 <div className="unresolved-imports-section">
-                  <span className="drawer-card-title">UNRESOLVED RELATIVE IMPORTS</span>
+                  <span className="drawer-card-title text-warning">BROKEN SOURCE MODULE IMPORTS</span>
                   <p className="muted small-text">
                     The following relative import paths could not be statically resolved to existing source files:
                   </p>
                   <ul className="unresolved-list font-mono">
-                    {unresolvedImports.map((item, idx) => (
+                    {brokenCodeImports.map((item, idx) => (
                       <li key={idx} className="unresolved-item">
                         <span className="unres-src">{item.sourceFile}:{item.line}</span>
                         <span className="unres-arrow">imports</span>
@@ -401,7 +419,28 @@ export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>All relative imports resolved cleanly to local workspace files.</span>
+                  <span>All semantic source code imports resolved cleanly to local workspace files.</span>
+                </div>
+              )}
+
+              {staticAssetImports.length > 0 && (
+                <div className="static-assets-section" style={{ marginTop: "12px" }}>
+                  <span className="drawer-card-title">STATIC ASSET IMPORTS (NON-SOURCE MODULES)</span>
+                  <p className="muted small-text">
+                    The following relative imports reference static stylesheets or assets. These non-source files are intentionally excluded from semantic code dependency graphs:
+                  </p>
+                  <ul className="unresolved-list font-mono">
+                    {staticAssetImports.map((item, idx) => (
+                      <li key={idx} className="unresolved-item">
+                        <span className="unres-src">{item.sourceFile}:{item.line}</span>
+                        <span className="unres-arrow">imports</span>
+                        <span className="unres-target">{item.importTarget}</span>
+                        <span className="static-tag" style={{ marginLeft: "auto", fontSize: "10px", padding: "1px 7px", borderRadius: "10px", background: "var(--color-canvas)", border: "1px solid var(--color-border)", color: "var(--color-ink-muted)" }}>
+                          {item.assetType}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

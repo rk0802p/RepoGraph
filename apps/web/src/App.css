@@ -1297,9 +1297,17 @@
   border-bottom: 1px solid var(--color-border);
   background-color: var(--color-surface);
   overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+.inspector-nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .inspector-tab {
+  flex-shrink: 0;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 500;
@@ -1825,7 +1833,8 @@
 }
 
 .atlas-analysis-drawer.is-open {
-  height: 290px;
+  height: 280px;
+  max-height: 42vh;
 }
 
 .drawer-header-bar {
@@ -2452,5 +2461,40 @@
 
   .drawer-panel {
     max-height: 55vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .atlas-topbar {
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .brand-subtitle {
+    display: none;
+  }
+  .atlas-brand-text {
+    display: none;
+  }
+  .topbar-center {
+    display: none;
+  }
+  .repo-switcher-button {
+    max-width: 130px;
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .panel-toggle-group {
+    gap: 2px;
+  }
+  .atlas-icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .graph-header-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .graph-actions-strip {
+    flex-wrap: wrap;
   }
 }

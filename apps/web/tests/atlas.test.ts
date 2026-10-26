@@ -124,4 +124,16 @@ describe("RepoGraph Code Atlas — Frontend Intelligence Helpers", () => {
     assert.equal(jsonEntry?.count, 1);
     assert.equal(jsonEntry?.percentage, "25.0");
   });
+
+  it("distinguishes static asset imports from source code modules", () => {
+    function isStaticAsset(source: string): boolean {
+      return /\.(css|scss|sass|less|svg|png|jpg|jpeg|gif|ico|webp|woff|woff2|ttf|eot|wasm)$/i.test(source);
+    }
+
+    assert.equal(isStaticAsset("./App.css"), true);
+    assert.equal(isStaticAsset("../styles/tokens.css"), true);
+    assert.equal(isStaticAsset("./assets/logo.svg"), true);
+    assert.equal(isStaticAsset("./components/InspectorPanel"), false);
+    assert.equal(isStaticAsset("../services/workspaceResolver.js"), false);
+  });
 });

@@ -300,7 +300,12 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
     layout.one("layoutstop", () => {
       if (!cy.destroyed()) {
         cy.resize();
-        cy.fit(cy.elements(), 40);
+        cy.fit(cy.elements(), 35);
+        // If whole-graph fit is zoomed out too far, frame comfortably so node cards are readable
+        if (cy.zoom() < 0.32) {
+          cy.zoom(0.42);
+          cy.center();
+        }
       }
     });
     layout.run();
@@ -368,6 +373,18 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
         }
       });
 
+      // Frame the active impact cluster with generous padding to prevent edge clipping
+      const impactCluster = cy.elements('.impact-changed, .impact-direct, .impact-transitive');
+      if (impactCluster.length > 0) {
+        cy.animate(
+          {
+            fit: { eles: impactCluster, padding: 85 },
+            duration: 400,
+          },
+          { queue: false }
+        );
+      }
+
       return;
     }
 
@@ -389,18 +406,18 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
     }
   }, [impactReport, selectedFile]);
 
-  // Synchronize with external selectedFile change (center animation)
+  // Synchronize with external selectedFile change (frame cluster with generous padding)
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || cy.destroyed() || !selectedFile) return;
 
     const node = cy.getElementById(selectedFile.path);
     if (node.length > 0) {
+      const cluster = node.neighborhood().nodes().add(node);
       cy.animate(
         {
-          center: { eles: node },
-          zoom: Math.max(cy.zoom(), 0.95),
-          duration: 300,
+          fit: { eles: cluster, padding: 85 },
+          duration: 350,
         },
         { queue: false }
       );
@@ -436,7 +453,22 @@ export const DependencyAtlas: React.FC<DependencyAtlasProps> = ({
   function handleFit() {
     const cy = cyRef.current;
     if (!cy) return;
-    cy.fit(cy.elements(), 40);
+    if (selectedFile) {
+      const node = cy.getElementById(selectedFile.path);
+      if (node.length > 0) {
+        const cluster = node.neighborhood().nodes().add(node);
+        cy.animate({ fit: { eles: cluster, padding: 80 }, duration: 300 });
+        return;
+      }
+    }
+    if (impactReport) {
+      const impactCluster = cy.elements('.impact-changed, .impact-direct, .impact-transitive');
+      if (impactCluster.length > 0) {
+        cy.animate({ fit: { eles: impactCluster, padding: 80 }, duration: 300 });
+        return;
+      }
+    }
+    cy.animate({ fit: { eles: cy.elements(), padding: 40 }, duration: 300 });
   }
 
   function handleZoomIn() {
