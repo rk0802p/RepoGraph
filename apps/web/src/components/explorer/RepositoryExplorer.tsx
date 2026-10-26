@@ -13,6 +13,7 @@ interface RepositoryExplorerProps {
   onSelectFile: (file: AnalyzedFile) => void;
   impactedPaths: Set<string>;
   changedFilePath: string | null;
+  collapsed?: boolean;
 }
 
 export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
@@ -26,6 +27,7 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
   onSelectFile,
   impactedPaths,
   changedFilePath,
+  collapsed = false,
 }) => {
   const [treeSearch, setTreeSearch] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
@@ -53,7 +55,7 @@ export const RepositoryExplorer: React.FC<RepositoryExplorerProps> = ({
   }, [analysis]);
 
   return (
-    <aside className="atlas-sidebar">
+    <aside className={`atlas-sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="sidebar-header">
         <span className="eyebrow-tag">EXPLORER</span>
         <h2 className="sidebar-title">Repository rail</h2>

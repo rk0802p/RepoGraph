@@ -73,6 +73,14 @@ export const AboutModal: React.FC<AboutModalProps> = ({ onClose }) => {
                 <span>Close modal or deselect current item</span>
               </div>
               <div className="shortcut-row">
+                <kbd>Alt+1</kbd>
+                <span>Toggle Explorer sidebar</span>
+              </div>
+              <div className="shortcut-row">
+                <kbd>Alt+2</kbd>
+                <span>Toggle Inspector panel</span>
+              </div>
+              <div className="shortcut-row">
                 <kbd>Scroll</kbd> / <kbd>Pinch</kbd>
                 <span>Smooth zoom graph canvas</span>
               </div>

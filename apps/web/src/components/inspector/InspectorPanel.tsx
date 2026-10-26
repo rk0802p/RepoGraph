@@ -16,6 +16,7 @@ interface InspectorPanelProps {
   impactError: string | null;
   onAnalyzeImpact: () => void;
   onInspectImpactedFile: (item: ImpactedFile) => void;
+  collapsed?: boolean;
 }
 
 type InspectorTab = "overview" | "symbols" | "dependencies" | "dependents" | "impact";
@@ -38,6 +39,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   impactError,
   onAnalyzeImpact,
   onInspectImpactedFile,
+  collapsed = false,
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>("overview");
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -92,7 +94,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   // Render Repository Overview when no file is selected
   if (!selectedFile) {
     return (
-      <aside className="atlas-inspector-panel">
+      <aside className={`atlas-inspector-panel ${collapsed ? "collapsed" : ""}`}>
         <div className="inspector-header">
           <span className="eyebrow-tag">ARCHITECTURAL OVERVIEW</span>
           <h2 className="inspector-title font-serif">Repository Blueprint</h2>
@@ -181,7 +183,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   const hasImpactForThisFile = impactReport && impactReport.changedFile === selectedFile.path;
 
   return (
-    <aside className="atlas-inspector-panel">
+    <aside className={`atlas-inspector-panel ${collapsed ? "collapsed" : ""}`}>
       {/* File Header */}
       <div className="inspector-header">
         <div className="file-header-top">

@@ -352,6 +352,18 @@
   background-color: var(--color-surface-hover);
 }
 
+.atlas-icon-btn.active {
+  background-color: var(--color-forest-tint);
+  border-color: var(--color-forest-border);
+  color: var(--color-forest);
+}
+
+.panel-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* ==========================================================================
    MAIN WORKSPACE LAYOUT (3 Panels)
    ========================================================================== */
@@ -361,6 +373,7 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+  min-width: 0;
 }
 
 /* ==========================================================================
@@ -377,6 +390,16 @@
   flex-direction: column;
   overflow: hidden;
   z-index: 10;
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.22s ease, opacity 0.2s ease, transform 0.22s ease;
+}
+
+.atlas-sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebar-header {
@@ -867,6 +890,7 @@
 
 .atlas-graph-workspace {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--color-canvas);
@@ -1173,6 +1197,16 @@
   flex-direction: column;
   overflow: hidden;
   z-index: 10;
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.22s ease, opacity 0.2s ease, transform 0.22s ease;
+}
+
+.atlas-inspector-panel.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  border-left: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .inspector-header {
@@ -1364,6 +1398,63 @@
 .prop-value {
   color: var(--color-ink);
   font-weight: 500;
+}
+
+/* Impact Summary Box in Overview Tab */
+.impact-summary-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background-color: var(--color-ember-tint);
+  border: 1px solid var(--color-ember-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.impact-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.impact-box-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-ember);
+}
+
+.impact-box-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background-color: rgba(230, 106, 60, 0.15);
+  color: var(--color-ember);
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+}
+
+.impact-box-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+
+.view-impact-btn {
+  width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ember);
+  border-color: var(--color-ember-border);
+  background-color: #fff;
+  margin-top: 4px;
+}
+
+.view-impact-btn:hover {
+  background-color: #FFF2EB;
+  border-color: var(--color-ember);
 }
 
 .hub-file-list, .deps-list, .symbols-list, .impacted-list {
@@ -2266,4 +2357,100 @@
   border-top: 1px solid var(--color-border);
   display: flex;
   justify-content: flex-end;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN & VIEWPORT ADAPTATIONS
+   ========================================================================== */
+
+@media (max-width: 1200px) {
+  .atlas-sidebar {
+    width: 290px;
+    min-width: 260px;
+  }
+  .atlas-inspector-panel {
+    width: 320px;
+    min-width: 280px;
+  }
+  .topbar-center {
+    max-width: 340px;
+  }
+}
+
+@media (max-width: 960px) {
+  .brand-subtitle {
+    display: none;
+  }
+  .atlas-stats-badge {
+    display: none;
+  }
+  .branch-tag {
+    display: none;
+  }
+  .topbar-center {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 768px) {
+  .atlas-topbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .topbar-divider {
+    display: none;
+  }
+  .topbar-left {
+    gap: 8px;
+  }
+  .connection-pill .status-label {
+    display: none;
+  }
+  .connection-pill {
+    padding: 6px;
+  }
+  .global-search-input {
+    font-size: 12px;
+  }
+  .search-shortcut {
+    display: none;
+  }
+
+  /* Overlay panels on tablet & mobile so canvas retains 100% width */
+  .atlas-sidebar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 300px;
+    max-width: 85vw;
+    z-index: 40;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.12);
+  }
+  .atlas-sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+
+  .atlas-inspector-panel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 330px;
+    max-width: 88vw;
+    z-index: 40;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.12);
+  }
+  .atlas-inspector-panel.collapsed {
+    transform: translateX(100%);
+  }
+
+  .atlas-graph-workspace {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .drawer-panel {
+    max-height: 55vh;
+  }
 }

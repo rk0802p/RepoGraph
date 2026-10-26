@@ -237,4 +237,28 @@ describe('RepoGraph API Test Suite', () => {
     const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=does-not-exist.ts`);
     assert.equal(res.status, 404);
   });
+
+  it('GET /api/repositories/:id/file should reject directory paths with 400', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=apps`);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(body.error, 'Requested path is not a file.');
+  });
+
+  it('GET /api/repositories/:id/file should reject null byte injection with 400', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=package.json%00.txt`);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(body.error, 'Invalid file path.');
+  });
+
+  it('GET /api/repositories/:id/file should reject encoded path traversal escaping workspace with 403', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd`);
+    assert.equal(res.status, 403);
+  });
+
+  it('GET /api/repositories/:id/file should reject absolute filesystem escape paths with 403', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=C%3A%5CWindows%5CSystem32%5Ccmd.exe`);
+    assert.equal(res.status, 403);
+  });
 });

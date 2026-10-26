@@ -15,6 +15,10 @@ interface TopBarProps {
     symbols: number;
   } | null;
   onOpenAbout: () => void;
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+  isInspectorOpen?: boolean;
+  onToggleInspector?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -27,6 +31,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSearchChange,
   stats,
   onOpenAbout,
+  isSidebarOpen = true,
+  onToggleSidebar,
+  isInspectorOpen = true,
+  onToggleInspector,
 }) => {
   const [isRepoDropdownOpen, setIsRepoDropdownOpen] = useState(false);
   const [customRepoInput, setCustomRepoInput] = useState("");
@@ -213,6 +221,38 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="status-label">
             {health ? "Connected" : apiError ? "Offline" : "Connecting"}
           </span>
+        </div>
+
+        <div className="panel-toggle-group">
+          {onToggleSidebar && (
+            <button
+              type="button"
+              className={`atlas-icon-btn ${isSidebarOpen ? "active" : ""}`}
+              onClick={onToggleSidebar}
+              title={isSidebarOpen ? "Collapse Explorer (Alt+1)" : "Expand Explorer (Alt+1)"}
+              aria-label="Toggle explorer panel"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            </button>
+          )}
+
+          {onToggleInspector && (
+            <button
+              type="button"
+              className={`atlas-icon-btn ${isInspectorOpen ? "active" : ""}`}
+              onClick={onToggleInspector}
+              title={isInspectorOpen ? "Collapse Inspector (Alt+2)" : "Expand Inspector (Alt+2)"}
+              aria-label="Toggle inspector panel"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <button

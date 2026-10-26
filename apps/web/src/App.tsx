@@ -39,6 +39,25 @@ export function App() {
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [isAboutOpen, setIsAboutOpen] = useState(false);
 
+  // Panel visibility state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+
+  // Keyboard shortcut listener for panel toggling (Alt+1 / Alt+2)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.altKey && e.key === "1") {
+        e.preventDefault();
+        setIsSidebarOpen((v) => !v);
+      } else if (e.altKey && e.key === "2") {
+        e.preventDefault();
+        setIsInspectorOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   function clearImpactState() {
     impactRequestId.current += 1;
     setImpactReport(null);
@@ -187,6 +206,10 @@ export function App() {
         onSearchChange={setGlobalSearchQuery}
         stats={repositoryStats}
         onOpenAbout={() => setIsAboutOpen(true)}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+        isInspectorOpen={isInspectorOpen}
+        onToggleInspector={() => setIsInspectorOpen((v) => !v)}
       />
 
       {/* 3-Panel Main Workspace */}
@@ -203,6 +226,7 @@ export function App() {
           onSelectFile={handleSelectFile}
           impactedPaths={impactedPathsSet}
           changedFilePath={impactReport?.changedFile ?? null}
+          collapsed={!isSidebarOpen}
         />
 
         {/* Center Panel: Dependency Atlas Canvas */}
@@ -228,6 +252,7 @@ export function App() {
           impactError={impactError}
           onAnalyzeImpact={handleAnalyzeImpact}
           onInspectImpactedFile={handleInspectImpactedFile}
+          collapsed={!isInspectorOpen}
         />
       </div>
 

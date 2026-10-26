@@ -46,6 +46,26 @@ export const AnalysisDrawer: React.FC<AnalysisDrawerProps> = ({
         key = "md";
         label = "Markdown";
         color = "#546E7A";
+      } else if (ext === ".py") {
+        key = "py";
+        label = "Python";
+        color = "#3572A5";
+      } else if (ext === ".go") {
+        key = "go";
+        label = "Go";
+        color = "#00ADD8";
+      } else if (ext === ".rs") {
+        key = "rs";
+        label = "Rust";
+        color = "#DEA584";
+      } else if (ext === ".css") {
+        key = "css";
+        label = "CSS";
+        color = "#563D7C";
+      } else if (ext === ".html") {
+        key = "html";
+        label = "HTML";
+        color = "#E34C26";
       }
 
       if (!counts[key]) {
