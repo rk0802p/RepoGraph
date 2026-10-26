@@ -6,6 +6,10 @@ import { analyzeRepository } from '../services/repositoryAnalyzer.js';
 import { buildDependencyGraph } from '../services/dependencyGraph.js';
 import { analyzeChangeImpact } from '../services/impactAnalyzer.js';
 
+import { isPathInside } from '../services/workspaceResolver.js';
+import { readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+
 export const repositoriesRouter = Router();
 
 // Storage for dynamically registered repositories
@@ -307,4 +311,68 @@ repositoriesRouter.post('/:id/index', async (req: Request, res: Response) => {
     jobId: `job-${Date.now()}`,
     revision: newRevision,
   });
+});
+
+// GET /api/repositories/:id/file?path=... (Safe Source File Viewer)
+repositoriesRouter.get('/:id/file', async (req: Request, res: Response) => {
+  try {
+    const repoId = req.params.id as string;
+    const requestedPath = req.query.path;
+
+    if (!requestedPath || typeof requestedPath !== 'string' || requestedPath.trim().length === 0) {
+      res.status(400).json({ error: 'Query parameter "path" is required.' });
+      return;
+    }
+
+    if (requestedPath.includes('\0')) {
+      res.status(400).json({ error: 'Invalid file path.' });
+      return;
+    }
+
+    const resolved = await resolveRepository(repoId);
+    if ('error' in resolved) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
+    const cleanPath = requestedPath.trim();
+    const candidatePath = path.resolve(resolved.rootDirectory, cleanPath);
+
+    if (!isPathInside(resolved.rootDirectory, candidatePath)) {
+      res.status(403).json({ error: 'Access denied: path escapes repository boundary.' });
+      return;
+    }
+
+    let fileStats;
+    try {
+      fileStats = await stat(candidatePath);
+    } catch {
+      res.status(404).json({ error: `File "${cleanPath}" was not found.` });
+      return;
+    }
+
+    if (!fileStats.isFile()) {
+      res.status(400).json({ error: 'Requested path is not a file.' });
+      return;
+    }
+
+    if (fileStats.size > 5 * 1024 * 1024) {
+      res.status(413).json({ error: 'File is too large to preview (>5MB).' });
+      return;
+    }
+
+    const content = await readFile(candidatePath, 'utf8');
+    const lines = content.split(/\r?\n/).length;
+
+    res.status(200).json({
+      repository: resolved.repository,
+      path: cleanPath.replace(/\\/g, '/'),
+      content,
+      lines,
+      sizeBytes: fileStats.size,
+      extension: path.extname(candidatePath).toLowerCase(),
+    });
+  } catch (error) {
+    handleRepositoryError(error, res, 'File read');
+  }
 });

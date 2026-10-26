@@ -211,4 +211,30 @@ describe('RepoGraph API Test Suite', () => {
     assert.equal(body.status, 'error');
     assert.equal(body.statusCode, 404);
   });
+
+  it('GET /api/repositories/:id/file should read file content safely', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=package.json`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.path, 'package.json');
+    assert.ok(typeof body.content === 'string');
+    assert.ok(body.lines > 0);
+    assert.ok(body.sizeBytes > 0);
+    assert.equal(body.extension, '.json');
+  });
+
+  it('GET /api/repositories/:id/file should require path parameter', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file`);
+    assert.equal(res.status, 400);
+  });
+
+  it('GET /api/repositories/:id/file should reject path traversal escaping repository', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=../../../../windows/system32/cmd.exe`);
+    assert.equal(res.status, 403);
+  });
+
+  it('GET /api/repositories/:id/file should return 404 for missing file', async () => {
+    const res = await fetch(`${baseUrl}/api/repositories/${testRepo}/file?path=does-not-exist.ts`);
+    assert.equal(res.status, 404);
+  });
 });

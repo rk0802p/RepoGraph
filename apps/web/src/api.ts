@@ -67,6 +67,29 @@ export type ImpactedFile = {
   importLine: number;
 };
 
+export type FileContentResponse = {
+  repository: string;
+  path: string;
+  content: string;
+  lines: number;
+  sizeBytes: number;
+  extension: string;
+};
+
+export type RepositoryItem = {
+  id: string;
+  name: string;
+  provider?: string;
+  defaultBranch?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type RepositoriesListResponse = {
+  repositories: RepositoryItem[];
+  total: number;
+};
+
 export type ChangeImpactReport = {
   repository: string;
   changedFile: string;
@@ -115,6 +138,19 @@ export function analyzeRepository(
     },
     body: JSON.stringify({ path: repositoryPath }),
   });
+}
+
+export function listRepositories(): Promise<RepositoriesListResponse> {
+  return request<RepositoriesListResponse>("/api/repositories");
+}
+
+export function fetchFileContent(
+  repositoryPath: string,
+  filePath: string
+): Promise<FileContentResponse> {
+  return request<FileContentResponse>(
+    `/api/repositories/${encodeURIComponent(repositoryPath)}/file?path=${encodeURIComponent(filePath)}`
+  );
 }
 
 export function analyzeChangeImpact(

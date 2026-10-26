@@ -69,10 +69,17 @@
 ```text
 repograph/
 ├── apps/
-│   └── web/                     # React 19 + TypeScript workstation UI
+│   └── web/                     # React 19 + TypeScript workstation: RepoGraph: The Code Atlas
 │       ├── src/
-│       │   ├── App.tsx          # Cytoscape + Dagre interactive dependency canvas
-│       │   ├── App.css          # Design system & visual impact highlight styles
+│       │   ├── components/      # Modular Code Atlas components
+│       │   │   ├── layout/      # TopBar (repo switcher, ⌘K search, API status) & AboutModal
+│       │   │   ├── explorer/    # RepositoryExplorer & searchable FileTree with language filters
+│       │   │   ├── graph/       # DependencyAtlas (Cytoscape + Dagre/Concentric/COSE, zoom, legend)
+│       │   │   ├── inspector/   # InspectorPanel (symbols, incoming/outgoing deps, impact report) & SourcePreviewModal
+│       │   │   └── drawer/      # AnalysisDrawer (language distribution bar, hubs, impact paths, scan log)
+│       │   ├── styles/tokens.css# Warm ivory Code Atlas design system tokens
+│       │   ├── App.tsx          # Cohesive workspace coordinator
+│       │   ├── App.css          # Editorial layout & responsive styles
 │       │   └── api.ts           # Typed API client connecting to backend
 │       └── vite.config.ts       # Code-split bundler with API reverse-proxy
 ├── services/
@@ -168,12 +175,13 @@ All routes are mounted under `/api`:
 | `GET` | `/api/repositories/:id/search` | Search symbols, identifiers, and source code on disk |
 | `POST` | `/api/repositories/:id/ask` | Evidence-grounded Q&A with verified file/line citations |
 | `POST` | `/api/repositories/:id/impact-analysis` | Submit Git diff and retrieve downstream impact report |
+| `GET` | `/api/repositories/:id/file` | Preview safe source code with line counts & containment checks |
 
 ---
 
 ## 6. Testing & Quality Verification
 
-Run all 60 unit, integration, security, and parser test suites across the monorepo:
+Run all 68 unit, integration, security, and parser test suites across the monorepo:
 
 ```bash
 # Run full test suite
@@ -207,7 +215,7 @@ npm run benchmark
 - [x] **Tree-sitter Parser Integration:** AST extraction pipeline for TypeScript, JavaScript, and TSX.
 - [x] **Dependency Graph Builder:** Resolution of relative, directory index, and explicit extension imports.
 - [x] **Change-Impact Analysis Engine:** Breadth-first search reverse dependency traversal with distance and dependency chain tracking.
-- [x] **Interactive Workspace UI:** Cytoscape.js + Dagre visual canvas with node dragging, zoom controls, file detail inspection, and visual impact highlighting.
+- [x] **RepoGraph: The Code Atlas UI:** Polished architectural workspace with warm ivory palette, Newsreader editorial typography, Cytoscape dependency atlas, collapsible file tree, inspector with real source code preview, and bottom analysis drawer.
 - [x] **Evidence-Grounded Q&A:** Code-aware retrieval generating answers citing exact file lines and snippets.
 - [ ] **Vector Embeddings Pipeline:** pgvector semantic code chunk indexing for natural-language intent search.
 - [ ] **Git Diff Engine:** Pull request review bot integration for GitHub Actions.

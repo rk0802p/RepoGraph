@@ -1,0 +1,101 @@
+/* RepoGraph: The Code Atlas — Design Tokens */
+
+:root {
+  /* Canvas & Surfaces */
+  --color-canvas: #F4F1E8;
+  --color-canvas-subtle: #EDE9DD;
+  --color-surface: #FBF9F3;
+  --color-surface-hover: #F6F3EB;
+  --color-surface-active: #EFECE2;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-sunken: #ECE8DC;
+
+  /* Ink & Typography */
+  --color-ink: #202923;
+  --color-ink-muted: #5A625B;
+  --color-ink-subtle: #858E86;
+  --color-ink-faint: #ACB3AC;
+  --color-ink-inverse: #FBF9F3;
+
+  /* Borders & Dividers */
+  --color-border: #DCD9CE;
+  --color-border-subtle: #E8E5DC;
+  --color-border-strong: #BFBBB0;
+  --color-border-focus: #175B45;
+
+  /* Forest Green (Primary Brand & Navigation) */
+  --color-forest: #175B45;
+  --color-forest-hover: #124836;
+  --color-forest-active: #0D3628;
+  --color-forest-tint: #EBF3EF;
+  --color-forest-border: #A3C9BC;
+
+  /* Sage Green (Secondary & Structural) */
+  --color-sage: #8DA58D;
+  --color-sage-subtle: #B8CBB8;
+  --color-sage-tint: #F1F5F1;
+  --color-sage-border: #C8D7C8;
+
+  /* Burnt Orange / Ember (Change-Impact & Alerts) */
+  --color-ember: #E66A3C;
+  --color-ember-hover: #D3592B;
+  --color-ember-active: #BD4A20;
+  --color-ember-tint: #FDF1EB;
+  --color-ember-border: #F7BAA1;
+
+  /* Semantic Alerts */
+  --color-danger: #D9483B;
+  --color-danger-tint: #FDEEED;
+  --color-warning: #D97706;
+  --color-warning-tint: #FEF3C7;
+  --color-info: #2563EB;
+  --color-info-tint: #EFF6FF;
+  --color-success: #15803D;
+  --color-success-tint: #ECFDF5;
+
+  /* Language Tags */
+  --tag-ts: #2D68C4;
+  --tag-ts-bg: #EAF1FA;
+  --tag-js: #A1741B;
+  --tag-js-bg: #FAF3E6;
+  --tag-json: #68727A;
+  --tag-json-bg: #EEF1F3;
+  --tag-md: #546E7A;
+  --tag-md-bg: #ECEFF1;
+  --tag-css: #8C439E;
+  --tag-css-bg: #F6EDF8;
+
+  /* Graph Specific */
+  --graph-node-bg: #FBF9F3;
+  --graph-node-border: #DCD9CE;
+  --graph-node-label: #202923;
+  --graph-node-sub: #6F756D;
+  --graph-edge: #9BA39B;
+  --graph-edge-hover: #175B45;
+  --graph-edge-impact: #E66A3C;
+
+  /* Typography Families */
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+
+  /* Elevations */
+  --shadow-xs: 0 1px 2px rgba(32, 41, 35, 0.04);
+  --shadow-sm: 0 2px 4px rgba(32, 41, 35, 0.05), 0 1px 2px rgba(32, 41, 35, 0.03);
+  --shadow-md: 0 4px 12px -2px rgba(32, 41, 35, 0.08), 0 2px 4px -2px rgba(32, 41, 35, 0.04);
+  --shadow-lg: 0 12px 28px -4px rgba(32, 41, 35, 0.12), 0 4px 8px -2px rgba(32, 41, 35, 0.04);
+  --shadow-panel: 0 0 0 1px var(--color-border), 0 4px 16px rgba(32, 41, 35, 0.06);
+
+  /* Radii */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 9999px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+}
